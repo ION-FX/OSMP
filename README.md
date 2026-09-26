@@ -1,0 +1,150 @@
+<p align="center">
+  <img src="docs/screenshots/icon-192.png" width="96" alt="OSMP logo">
+</p>
+<h1 align="center">OSMP — Open-Source Music Player</h1>
+<p align="center">
+  <b>Your music, your server, every screen.</b><br>
+  A self-hosted Spotify alternative: YouTube-backed streaming, offline downloads,
+  algorithmic radio, optional AI curation — in the browser, as a Linux AppImage,
+  and as an Android app.
+</p>
+<p align="center">
+  <img src="docs/screenshots/03-playing.png" width="880" alt="OSMP playing a track">
+</p>
+
+---
+
+## Why OSMP?
+
+- **Self-hosted** — one small Python server on your machine/NAS; every client
+  talks to it. No accounts, no cloud, no telemetry.
+- **YouTube as your catalog** — search anything on YouTube and play the audio
+  stream instantly (server-side proxy with full seeking support).
+- **True offline** — download tracks server-side into your library, or
+  on-device in the Android app. Downloads play with the network unplugged.
+- **Radio that understands seeds** — give it a song, artist or mood; it walks
+  YouTube's own recommendation graph, dedupes, spreads artists, ranks by
+  relevance. No API key, no rate limits.
+- **Optional AI curator** — plug in any OpenAI-compatible endpoint
+  (OpenAI, OpenRouter, Groq, Ollama, LM Studio…) and describe a vibe in plain
+  words; the LLM designs the tracklist, OSMP resolves every pick.
+- **A UI worth looking at** — aurora gradient themes, ambient glow extracted
+  live from cover art, animated equalizers, view transitions, sleep timer with
+  volume fade-out, queue with drag-reorder, Media Session / lock-screen
+  integration, installable PWA.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![home](docs/screenshots/01-home.png) | ![radio](docs/screenshots/07-radio.png) |
+| ![now playing](docs/screenshots/06-now-playing.png) | ![light theme](docs/screenshots/13-light-home.png) |
+
+## The three surfaces
+
+| Surface | What it is |
+|---|---|
+| **Browser** | The full web app (installable PWA). Zero build step — hand-written ES modules, no npm anywhere. |
+| **Linux AppImage** | `OSMP-x86_64.AppImage` — a real desktop window (Qt WebEngine) with the entire server, yt-dlp and ffmpeg bundled inside. System tray with transport controls. |
+| **Android APK** | WebView shell around the same UI + a native layer: on-device downloads served through a virtual host (offline playback with zero network), wake lock, media notification with lock-screen controls. |
+
+All three share one codebase for the UI (`webui/`).
+
+## Quick start — server + browser
+
+Requirements: Python ≥ 3.10, nothing else (ffmpeg is auto-detected if present;
+the bundled builds below include it).
+
+```bash
+pip3 install -r server/requirements.txt
+python3 server/run.py --open
+```
+
+That's it — the UI opens at `http://127.0.0.1:8790`. To serve your whole
+network: `python3 server/run.py --host 0.0.0.0`.
+
+Data lives in `~/.local/share/osmp` (override with `--data DIR` or `OSMP_DATA`).
+
+## Linux AppImage
+
+Download `OSMP-x86_64.AppImage` from
+[Releases](https://github.com/ION-FX/OSMP/releases), then:
+
+```bash
+chmod +x OSMP-x86_64.AppImage
+./OSMP-x86_64.AppImage
+```
+
+Everything (server, yt-dlp, ffmpeg, Qt) is inside the file. It shares the same
+library directory as the plain server, so downloads follow you.
+Useful flags: `--browser` (serve + open your default browser instead of the
+window), `--port N`, `--data DIR`.
+
+## Android
+
+Download `osmp-android.apk` from Releases (or build it, see below). On first
+launch, enter your server address — e.g. `http://192.168.1.20:8790` — and the
+app connects. The download button then saves tracks **on the device**; they
+keep playing in airplane mode via a native request interceptor.
+
+## Building from source
+
+No npm, no node — Python, Gradle/JDK and standard Linux tools only.
+
+```bash
+# web + server (nothing to build — run it)
+python3 server/run.py
+
+# Linux AppImage (needs pip packages: PyInstaller, PySide6)
+bash scripts/build_appimage.sh
+
+# Android APK (needs JDK 17 + Android SDK; paths auto-detected or via env)
+bash scripts/build_android.sh
+
+# headless UI test-suite (Playwright, real YouTube, screenshots)
+python3 scripts/ui_test.py
+```
+
+## Configuration
+
+Everything lives in the Settings view (or `~/.local/share/osmp/osmp.db`):
+
+| Setting | Purpose |
+|---|---|
+| Theme / accent | Aurora Dark, Midnight (OLED), Daylight + 8 accent hues |
+| AI Curator | `base_url`, `api_key`, `model` for any OpenAI-compatible API |
+| Access PIN | Optional lock for the web UI + API (cookie session) |
+| Stream format | `auto` / `m4a` (max compatibility) / `opus` (best quality) |
+
+Keyboard: `Space` play/pause · `Shift+←/→` prev/next · `M` mute.
+
+## Architecture
+
+```
+┌─ Browser PWA ──── Qt AppImage window ──── Android WebView ─
+│                     one shared vanilla-JS SPA               │
+└──────────────▲──────────────────────────────────────────────┘
+               │ HTTP: UI + REST + Range-proxied audio
+┌──────────────┴──────────────────────────────────────────────┐
+│ Python server (FastAPI · SQLite · yt-dlp · static ffmpeg)   │
+│  /api/search /api/stream /api/library /api/playlists        │
+│  /api/radio/generate (recommendation-graph algorithm)       │
+│  /api/radio/llm (optional OpenAI-compatible curator)        │
+└─────────────────────────────────────────────────────────────┘
+Android adds: native download store + offline.osmp.local interception,
+wake lock, MediaSession notification.
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the deep dive
+(stream proxying, radio shaping, offline interception, packaging).
+
+## Disclaimer
+
+OSMP is intended for **personal use** with content you are entitled to play.
+Streaming/downloading from YouTube may be restricted by YouTube's Terms of
+Service and by copyright law in your jurisdiction. You are responsible for how
+you use it.
+
+## License
+
+MIT © [ION-FX](https://github.com/ION-FX) — see [LICENSE](LICENSE).

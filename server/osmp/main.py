@@ -1,0 +1,95 @@
+"""FastAPI application assembly: middleware, API router, static web UI."""
+from __future__ import annotations
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import httpx
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import db, youtube
+from .api import _AUTH_EXEMPT, _authorized, router
+from .config import Config, get_config, set_config
+
+log = logging.getLogger("osmp")
+
+
+def find_webui() -> Path:
+    env = os.environ.get("OSMP_WEBUI")
+    candidates = [
+        Path(env) if env else None,
+        Path(__file__).resolve().parents[2] / "webui",   # repo layout
+        Path(sys_executable_dir()) / "webui",            # PyInstaller bundle
+        Path(getattr(os, "_MEIPASS", "")) / "webui" if getattr(os, "_MEIPASS", "") else None,
+    ]
+    for c in candidates:
+        if c and (c / "index.html").is_file():
+            return c
+    raise RuntimeError(f"web UI not found (looked for index.html); set OSMP_WEBUI")
+
+
+def sys_executable_dir() -> str:
+    import sys
+    return str(Path(sys.executable).parent)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.init_db(get_config())
+    app.state.http = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(30.0, read=120.0, write=30.0, pool=30.0),
+        limits=httpx.Limits(max_connections=64, max_keepalive_connections=16),
+        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) OSMP/0.1"},
+    )
+    cfg = get_config()
+    log.info("OSMP ready | data=%s ffmpeg=%s", cfg.data_dir, cfg.ffmpeg_path or "MISSING")
+    yield
+    await app.state.http.aclose()
+
+
+def create_app(data_dir: str | None = None) -> FastAPI:
+    if data_dir:
+        set_config(Config(data_dir))
+
+    app = FastAPI(title="OSMP", docs_url="/api/docs", openapi_url="/api/openapi.json",
+                  lifespan=lifespan)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
+    )
+
+    @app.middleware("http")
+    async def pin_gate(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api") and path not in _AUTH_EXEMPT:
+            if not _authorized(request.cookies.get("osmp_session")):
+                return JSONResponse({"detail": "authentication required"}, status_code=401)
+        return await call_next(request)
+
+    app.include_router(router)
+
+    @app.exception_handler(youtube.TrackUnavailable)
+    async def _unavailable(request: Request, exc: youtube.TrackUnavailable):
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
+    @app.exception_handler(youtube.ResolveError)
+    async def _resolve(request: Request, exc: youtube.ResolveError):
+        return JSONResponse({"detail": str(exc)}, status_code=502)
+
+    webui = find_webui()
+    app.mount("/", StaticFiles(directory=str(webui), html=True), name="ui")
+    return app
+
+
+app = create_app()

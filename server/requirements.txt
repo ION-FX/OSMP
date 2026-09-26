@@ -1,0 +1,9 @@
+# OSMP server — Python >= 3.10
+# Install:  pip3 install --user -r requirements.txt
+fastapi>=0.110
+uvicorn[standard]>=0.29
+yt-dlp>=2025.1.15
+mutagen>=1.47
+PyYAML>=6.0
+pydantic>=2.6
+httpx>=0.27

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OSMP</string>
+    <string name="setup_title">Connect to your OSMP server</string>
+    <string name="setup_hint">The address of the machine running OSMP — on your home network that is usually something like http://192.168.1.20:8790</string>
+    <string name="setup_url_hint">http://192.168.1.20:8790</string>
+    <string name="setup_connect">Connect</string>
+    <string name="setup_testing">Testing…</string>
+    <string name="setup_fail">Could not reach an OSMP server at that address</string>
+    <string name="setup_ok">Connected!</string>
+    <string name="notif_channel">Playback</string>
+    <string name="notif_title">OSMP</string>
+</resources>

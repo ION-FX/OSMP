@@ -1,0 +1,36 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# server runtime data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# desktop build artifacts
+desktop/build/
+desktop/dist/
+desktop/AppDir/
+
+# android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore/
+
+# outputs
+dist/
+*.log
+
+# editors
+.vscode/
+.idea/
+.DS_Store
+
+# pyinstaller
+*.spec

@@ -1,0 +1,5 @@
+// Top-level build file. The app uses ONLY Android framework classes —
+// no androidx, no Kotlin plugin, no third-party deps: maximally reproducible.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

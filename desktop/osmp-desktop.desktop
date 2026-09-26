@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OSMP
+Comment=Open-Source Music Player — self-hosted streaming
+Exec=osmp-desktop
+Icon=osmp
+Categories=Audio;Music;Player;AudioVideo;
+Terminal=false
+StartupWMClass=osmp-desktop
