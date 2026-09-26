@@ -391,7 +391,7 @@ def _restart(job: dict, new_appimage: Path | None = None) -> None:
         if not root:
             raise UpdateError("cannot determine repo root for relaunch")
         data = cfg.data_dir
-        script = (f'sleep 2; cd "{root}" && exec {sys.executable} run.py '
+        script = (f'sleep 2; cd "{root}/server" && exec {sys.executable} run.py '
                   f'--host {cfg.host} --port {cfg.port} --data "{data}" '
                   f'>> "{data}/server.log" 2>&1')
         _log(job, f"relaunching server on {cfg.host}:{cfg.port}")
