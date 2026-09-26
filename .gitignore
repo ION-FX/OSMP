@@ -34,3 +34,6 @@ dist/
 
 # pyinstaller
 *.spec
+
+# pyinstaller build tree
+/build/

@@ -80,6 +80,12 @@ library directory as the plain server, so downloads follow you.
 Useful flags: `--browser` (serve + open your default browser instead of the
 window), `--port N`, `--data DIR`.
 
+> **Note for Ubuntu 23.04+ / distros without `libfuse2`:** AppImages use FUSE
+> to mount themselves. If double-clicking reports a missing `libfuse.so.2`,
+> either `sudo apt install libfuse2` or run
+> `./OSMP-x86_64.AppImage --appimage-extract-and-run` (same app, extracts to a
+> temp dir instead of mounting).
+
 ## Android
 
 Download `osmp-android.apk` from Releases (or build it, see below). On first

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,11 +22,13 @@ log = logging.getLogger("osmp")
 
 def find_webui() -> Path:
     env = os.environ.get("OSMP_WEBUI")
+    meipass = getattr(sys, "_MEIPASS", "")
     candidates = [
         Path(env) if env else None,
-        Path(__file__).resolve().parents[2] / "webui",   # repo layout
-        Path(sys_executable_dir()) / "webui",            # PyInstaller bundle
-        Path(getattr(os, "_MEIPASS", "")) / "webui" if getattr(os, "_MEIPASS", "") else None,
+        Path(meipass) / "webui" if meipass else None,      # PyInstaller bundle
+        Path(__file__).resolve().parents[1] / "webui",     # frozen _internal/webui
+        Path(__file__).resolve().parents[2] / "webui",     # repo: OSMP/webui
+        Path(sys_executable_dir()) / "webui",
     ]
     for c in candidates:
         if c and (c / "index.html").is_file():
