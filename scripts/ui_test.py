@@ -203,25 +203,25 @@ def main():
 
         # midnight
         page.evaluate("localStorage.setItem('osmp.theme', '\"midnight\"')")
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="load")
         time.sleep(1.5)
         check("theme: midnight persisted", page.evaluate("document.documentElement.dataset.theme") == "midnight")
         shot(page, "14-midnight-home")
 
         # back to dark for later screenshots
         page.evaluate("localStorage.setItem('osmp.theme', '\"dark\"'); localStorage.setItem('osmp.accent', '178')")
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="load")
         time.sleep(1)
 
         # ── home with playback history ────────────────────────
         shot(page, "15-home-final")
 
         # ── console errors ────────────────────────────────────
+        # Resource-level 404s are expected by design (maxres→hq thumbnail
+        # fallback chain); real JS exceptions arrive via pageerror.
         real_errors = [e for e in console_errors
                        if "favicon" not in e.lower()
-                       and "net::err" not in e.lower()          # thumbnail 404s etc.
-                       and "i.ytimg.com" not in e
-                       and "media" not in e.lower()]
+                       and not e.startswith("Failed to load resource")]
         check("console: no fatal JS errors", not real_errors, "; ".join(real_errors[:5]))
 
         browser.close()
