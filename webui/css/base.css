@@ -120,37 +120,49 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-/* ——— aurora mesh background ——— */
+/* ——— aurora mesh background ———
+   Pre-softened radial gradients instead of filter:blur(): a 90px blur on
+   full-screen layers forces per-frame compositing of enormous textures and
+   is the #1 jank source on integrated GPUs / phones. Visually near-identical,
+   an order of magnitude cheaper. */
 #bg-mesh {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   opacity: var(--mesh-op);
-  filter: blur(0px);
   transition: opacity .6s var(--ease);
+  contain: strict;
 }
 .blob {
   position: absolute; border-radius: 50%;
-  filter: blur(90px);
   will-change: transform;
   opacity: .5;
 }
 .blob-1 {
-  width: 55vmax; height: 55vmax; left: -18vmax; top: -22vmax;
-  background: radial-gradient(circle at 30% 30%, hsl(var(--accent-h) 90% 55% / .5), transparent 65%);
+  width: 62vmax; height: 62vmax; left: -20vmax; top: -24vmax;
+  background: radial-gradient(circle at 50% 50%,
+    hsl(var(--accent-h) 90% 55% / .5) 0%,
+    hsl(var(--accent-h) 90% 55% / .22) 34%,
+    transparent 66%);
   animation: drift-1 74s var(--ease) infinite alternate;
 }
 .blob-2 {
-  width: 48vmax; height: 48vmax; right: -16vmax; top: 8vmax;
-  background: radial-gradient(circle at 60% 40%, hsl(calc(var(--accent-h) + 82) 90% 60% / .42), transparent 65%);
+  width: 54vmax; height: 54vmax; right: -18vmax; top: 6vmax;
+  background: radial-gradient(circle at 50% 50%,
+    hsl(calc(var(--accent-h) + 82) 90% 60% / .42) 0%,
+    hsl(calc(var(--accent-h) + 82) 90% 60% / .18) 34%,
+    transparent 66%);
   animation: drift-2 92s var(--ease) infinite alternate;
 }
 .blob-3 {
-  width: 40vmax; height: 40vmax; left: 22vmax; bottom: -20vmax;
-  background: radial-gradient(circle at 50% 50%, hsl(calc(var(--accent-h) + 40) 90% 55% / .3), transparent 65%);
+  width: 46vmax; height: 46vmax; left: 20vmax; bottom: -22vmax;
+  background: radial-gradient(circle at 50% 50%,
+    hsl(calc(var(--accent-h) + 40) 90% 55% / .3) 0%,
+    hsl(calc(var(--accent-h) + 40) 90% 55% / .13) 34%,
+    transparent 66%);
   animation: drift-3 110s var(--ease) infinite alternate;
 }
-@keyframes drift-1 { to { transform: translate3d(14vmax, 10vmax, 0) scale(1.18) rotate(24deg); } }
-@keyframes drift-2 { to { transform: translate3d(-12vmax, 16vmax, 0) scale(1.1) rotate(-30deg); } }
-@keyframes drift-3 { to { transform: translate3d(10vmax, -12vmax, 0) scale(1.22) rotate(18deg); } }
+@keyframes drift-1 { to { transform: translate3d(14vmax, 10vmax, 0) scale(1.18); } }
+@keyframes drift-2 { to { transform: translate3d(-12vmax, 16vmax, 0) scale(1.1); } }
+@keyframes drift-3 { to { transform: translate3d(10vmax, -12vmax, 0) scale(1.22); } }
 
 /* ——— boot splash ——— */
 #boot-splash {
@@ -210,3 +222,19 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 }
 html[data-motion="off"] #bg-mesh { display: none; }
 html[data-motion="off"] * { animation-duration: .01ms !important; transition-duration: .05ms !important; }
+/* low-power mode also strips the remaining expensive compositing (glass blurs) */
+html[data-motion="off"] #sidebar,
+html[data-motion="off"] #player-bar,
+html[data-motion="off"] #view-root,
+html[data-motion="off"] .tl-head {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+/* auto low-spec (weak device, motion still allowed): keep the aurora field
+   but freeze its drift and drop glass blurs — near-zero per-frame cost */
+html[data-perf="low"] .blob { animation: none !important; }
+html[data-perf="low"] #sidebar,
+html[data-perf="low"] #player-bar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

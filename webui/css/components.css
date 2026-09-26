@@ -190,7 +190,6 @@ input[type="range"]::-moz-range-thumb {
   border-bottom: 1px solid var(--glass-border);
   margin-bottom: 5px; position: sticky; top: 0;
   background: var(--bg-1); z-index: 2;
-  backdrop-filter: blur(10px);
 }
 html[data-theme="dark"] .tl-head { background: hsl(216 30% 8% / .88); }
 html[data-theme="midnight"] .tl-head { background: hsl(220 25% 4% / .88); }

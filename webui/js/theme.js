@@ -48,6 +48,18 @@ export function initTheme() {
   applyTheme(load('theme', 'dark'));
   applyAccent(load('accent', 178));
   applyMotion(load('motion', true));
+  autoLowSpec();
+}
+
+/* Weak hardware (phones, old laptops): freeze the ambient drift and strip
+   glass blurs automatically — unless the user picked a preference explicitly. */
+function autoLowSpec() {
+  if (localStorage.getItem('osmp.motion') !== null) return; // explicit user choice wins
+  const cores = navigator.hardwareConcurrency || 8;
+  const mem = navigator.deviceMemory || 8;
+  if (cores <= 4 || mem <= 4) {
+    document.documentElement.dataset.perf = 'low';
+  }
 }
 
 // ── ambient color extraction ─────────────────────────────────────────

@@ -3,7 +3,7 @@
  * streams are NEVER cached here (offline playback is served by the server
  * library or the Android native layer). */
 
-const CACHE = 'osmp-shell-v1';
+const CACHE = 'osmp-shell-v2';
 const SHELL = [
   '/',
   '/index.html',
