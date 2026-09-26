@@ -43,6 +43,9 @@ def main() -> None:
     from osmp.config import Config, get_config, set_config
     set_config(Config(args.data))
     cfg = get_config()
+    # record the actual bind target so self-update can relaunch identically
+    cfg.host = args.host
+    cfg.port = args.port
 
     from osmp.main import create_app
     app = create_app(args.data)

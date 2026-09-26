@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import db, llm, radio, youtube
+from . import db, llm, radio, update, youtube
 from .config import get_config
 
 log = logging.getLogger("osmp.api")
@@ -84,8 +84,14 @@ def health():
 @router.get("/config")
 def client_config(request: Request):
     from . import __version__
+    try:
+        cinfo = update.current_info()
+    except Exception:  # noqa: BLE001 — never break config on update introspection
+        cinfo = {}
     return {
         "version": __version__,
+        "commit": cinfo.get("commit"),
+        "update_mode": cinfo.get("mode", "unknown"),
         "auth_required": _pin_set() and not _authorized(request.cookies.get("osmp_session")),
         "llm_configured": llm.is_configured(),
         "ffmpeg": bool(get_config().ffmpeg_path),
@@ -548,6 +554,36 @@ class LLMPromptIn(BaseModel):
     count: int = 20
 
 
+# --------------------------------------------------------------- self-update
+
+@router.post("/update/check")
+def update_check():
+    try:
+        return update.check()
+    except update.UpdateError as exc:
+        raise HTTPException(502, str(exc))
+
+
+class UpdateApplyIn(BaseModel):
+    kind: Literal["full", "ytdlp"] = "full"
+
+
+@router.post("/update/apply")
+def update_apply(body: UpdateApplyIn):
+    try:
+        return update.start_job(body.kind)
+    except update.UpdateError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/update/status/{job_id}")
+def update_status(job_id: str):
+    try:
+        return update.job_status(job_id)
+    except update.UpdateError as exc:
+        raise HTTPException(404, str(exc))
+
+
 @router.post("/radio/llm")
 def radio_llm(body: LLMPromptIn):
     try:
@@ -562,9 +598,9 @@ def radio_llm(body: LLMPromptIn):
 
 # --------------------------------------------------------------- settings / history
 
-_SENSITIVE = {"llm_api_key", "access_pin"}
+_SENSITIVE = {"llm_api_key", "access_pin", "github_token"}
 _ALLOWED_SETTINGS = {"llm_base_url", "llm_api_key", "llm_model", "access_pin",
-                     "default_format", "radio_count"}
+                     "default_format", "radio_count", "github_token"}
 
 
 @router.get("/settings")

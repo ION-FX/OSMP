@@ -68,6 +68,33 @@ export async function mount(root) {
     </section>
 
     <section class="section">
+      <div class="section-head-row"><h2>${icon('zap', 19)} &nbsp;Updates</h2></div>
+      <div class="card" style="cursor:default">
+        <div class="row gap-m" style="margin-bottom:14px;flex-wrap:wrap">
+          <span class="dim" id="up-now" style="font-size:13.5px"></span>
+          <span class="spacer"></span>
+          <span id="up-badge" class="faint" style="font-size:12px"></span>
+        </div>
+        <div class="row gap-m" style="flex-wrap:wrap" id="up-actions">
+          <button class="btn ghost" id="up-check">${icon('info', 15)} Check for updates</button>
+          <button class="btn primary hidden" id="up-apply">${icon('download', 15)} Update now</button>
+          <button class="btn ghost" id="up-ytdlp" title="When YouTube changes and videos stop playing, this pulls the newest extractor">${icon('zap', 15)} Update yt-dlp only</button>
+          <a class="btn ghost" id="up-releases" href="${'https://github.com/ION-FX/OSMP/releases'}" target="_blank" rel="noreferrer">${icon('link', 15)} Releases page</a>
+        </div>
+        <div id="up-note" class="dim hidden" style="margin-top:12px;font-size:13px"></div>
+        <div class="field" style="margin-top:14px" id="up-token-field">
+          <label>GitHub token <span class="faint">(optional for public repos; needed for private ones)</span></label>
+          <div class="row gap-m">
+            <input class="input mono" id="up-token" type="password" placeholder="${serverSettings.github_token ? '•••• (set)' : 'github_pat_… / ghp_…'}" style="max-width:380px">
+            <button class="btn ghost" id="up-token-save">Save</button>
+          </div>
+          <div class="hint">Stored on the server only. Used to check releases and pull code.</div>
+        </div>
+        <pre id="up-log" class="mono hidden" style="margin-top:14px;background:var(--bg-2);border-radius:var(--r-sm);padding:12px;font-size:11.5px;line-height:1.55;max-height:220px;overflow:auto;white-space:pre-wrap"></pre>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="section-head-row"><h2>${icon('server', 19)} &nbsp;Playback & server</h2></div>
       <div class="card" style="cursor:default">
         <div class="field" style="margin-bottom:16px">
@@ -227,6 +254,131 @@ export async function mount(root) {
     <div>${icon('download', 14)} Library: ${libCount} tracks offline · ${fmtBytes(libSize)} on disk</div>
     <div>${icon('cloud-off', 14)} Playback offline: downloads play with no network at all</div>
     ${window.OsmpBridge ? `<div>${icon('disc', 14)} Running inside the OSMP Android app</div>` : ''}`;
+
+  // ── updates ──────────────────────────────────────────────────────
+  const upNow = root.querySelector('#up-now');
+  const upBadge = root.querySelector('#up-badge');
+  const upNote = root.querySelector('#up-note');
+  const upLog = root.querySelector('#up-log');
+  const upApply = root.querySelector('#up-apply');
+  const cfgNow = get('config') || {};
+  upNow.textContent = `OSMP v${cfgNow.version || '?'}` +
+    (cfgNow.commit ? ` · build ${cfgNow.commit}` : '') +
+    (cfgNow.update_mode === 'appimage' ? ' · AppImage'
+      : cfgNow.update_mode === 'source' ? ' · source install' : '');
+
+  const onAndroid = !!window.OsmpBridge;
+  if (onAndroid) {
+    // APKs update by installing the new release — hide in-place actions
+    root.querySelector('#up-check').classList.add('hidden');
+    root.querySelector('#up-ytdlp').classList.add('hidden');
+    root.querySelector('#up-token-field').classList.add('hidden');
+    root.querySelector('#up-releases').classList.add('primary');
+    root.querySelector('#up-releases').innerHTML =
+      `${icon('download', 15)} Get the latest APK`;
+    upBadge.textContent = 'on-device';
+  }
+
+  const saveToken = async () => {
+    const v = root.querySelector('#up-token').value.trim();
+    if (!v) { toast('Paste a token first'); return; }
+    try {
+      await api.saveSettings({ github_token: v });
+      root.querySelector('#up-token').value = '';
+      toastOk('Token saved — update checks enabled');
+    } catch (e) { toastErr(e.detail || 'Save failed'); }
+  };
+  root.querySelector('#up-token-save').onclick = saveToken;
+
+  const appendLog = (lines) => {
+    upLog.classList.remove('hidden');
+    upLog.textContent = (lines || []).join('\n');
+    upLog.scrollTop = upLog.scrollHeight;
+  };
+
+  const pollJob = (jobId) => new Promise(resolve => {
+    const tick = async () => {
+      try {
+        const data = await api.updateStatus(jobId);
+        appendLog(data.lines);
+        if (data.phase === 'restarting') return resolve(data);
+        if (data.status === 'done' || data.status === 'error') return resolve(data);
+      } catch { /* server restarting — keep waiting */ }
+      setTimeout(tick, 1200);
+    };
+    tick();
+  });
+
+  const waitBackAndReload = () => {
+    upNote.classList.remove('hidden');
+    upNote.textContent = 'Update applied — waiting for the server to come back…';
+    let tries = 0;
+    const ping = async () => {
+      try {
+        const r = await fetch(`/api/health?cb=${Date.now()}`, { credentials: 'same-origin' });
+        if (r.ok) { location.reload(); return; }
+      } catch { /* not up yet */ }
+      if (++tries < 90) setTimeout(ping, 1500);
+      else upNote.textContent = 'Server did not come back within 2 minutes — check server.log.';
+    };
+    setTimeout(ping, 2500);
+  };
+
+  const runUpdate = async (kind) => {
+    try {
+      upApply.disabled = true;
+      root.querySelector('#up-ytdlp').disabled = true;
+      upNote.classList.remove('hidden');
+      upNote.textContent = kind === 'ytdlp'
+        ? 'Refreshing the YouTube extractor…'
+        : 'Updating OSMP — hang tight, the server restarts itself…';
+      const { job_id } = await api.updateApply(kind);
+      const final = await pollJob(job_id);
+      upApply.disabled = false;
+      root.querySelector('#up-ytdlp').disabled = false;
+      if (final.phase === 'restarting') {
+        waitBackAndReload();
+      } else if (final.status === 'error') {
+        upNote.textContent = 'Update failed — see the log above.';
+        toastErr('Update failed');
+      } else {
+        upNote.textContent = 'Done.';
+      }
+    } catch (e) {
+      upApply.disabled = false;
+      root.querySelector('#up-ytdlp').disabled = false;
+      toastErr(e.detail || e.message || 'Update failed');
+    }
+  };
+
+  root.querySelector('#up-apply').onclick = () => runUpdate('full');
+  root.querySelector('#up-ytdlp').onclick = () => runUpdate('ytdlp');
+  root.querySelector('#up-check').onclick = async () => {
+    upBadge.innerHTML = `<span style="display:inline-flex" class="spin">${icon('spinner', 13)}</span> checking…`;
+    try {
+      const data = await api.updateCheck();
+      if (data.update_available) {
+        upBadge.textContent = `⬆ ${data.latest_tag} available`;
+        upBadge.style.color = 'hsl(140 70% 55%)';
+        upNote.classList.remove('hidden');
+        upNote.textContent = `${data.reason || ''} — current v${data.current_version}` +
+          (data.current_commit ? ` (${data.current_commit})` : '') +
+          `, latest ${data.latest_tag}` +
+          (data.remote_commit ? ` (build ${data.remote_commit})` : '') + '.';
+        upApply.classList.remove('hidden');
+      } else {
+        upBadge.textContent = '✓ up to date';
+        upBadge.style.color = 'hsl(140 70% 55%)';
+        upNote.classList.remove('hidden');
+        upNote.textContent = `You're on the latest release (${data.latest_tag}).`;
+        upApply.classList.add('hidden');
+      }
+    } catch (e) {
+      upBadge.textContent = '✗ check failed';
+      upNote.classList.remove('hidden');
+      upNote.textContent = e.detail || e.message || 'Check failed';
+    }
+  };
 
   return {};
 }

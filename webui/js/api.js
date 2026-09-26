@@ -82,6 +82,11 @@ export const api = {
   saveSettings:  (patch) => req('/api/settings', { method: 'PUT', body: patch }),
   history:       (trackId) => req('/api/history', { method: 'POST', body: { track_id: trackId } }).catch(() => {}),
   home:          () => req('/api/home'),
+
+  // self-update
+  updateCheck:   () => req('/api/update/check', { method: 'POST' }),
+  updateApply:   (kind = 'full') => req('/api/update/apply', { method: 'POST', body: { kind } }),
+  updateStatus:  (jobId) => req(`/api/update/status/${jobId}`),
 };
 
 // stream URLs — the player uses these directly on the <audio> element
