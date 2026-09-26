@@ -25,6 +25,11 @@
 - **Radio that understands seeds** — give it a song, artist or mood; it walks
   YouTube's own recommendation graph, dedupes, spreads artists, ranks by
   relevance. No API key, no rate limits.
+- **Import from YouTube** — paste any public playlist, album, channel or
+  @handle link (or even a bare playlist ID): preview every track, untick what
+  you don't want, and it becomes a real OSMP playlist. Paste the same link
+  into Search or Radio and you're routed to the importer automatically.
+  Big sources are capped at the first 500 uploads.
 - **Optional AI curator** — plug in any OpenAI-compatible endpoint
   (OpenAI, OpenRouter, Groq, Ollama, LM Studio…) and describe a vibe in plain
   words; the LLM designs the tracklist, OSMP resolves every pick.
@@ -42,7 +47,7 @@
 | | |
 |---|---|
 | ![home](docs/screenshots/01-home.png) | ![radio](docs/screenshots/07-radio.png) |
-| ![now playing](docs/screenshots/06-now-playing.png) | ![light theme](docs/screenshots/13-light-home.png) |
+| ![import](docs/screenshots/09-import.png) | ![now playing](docs/screenshots/06-now-playing.png) |
 
 ## The three surfaces
 

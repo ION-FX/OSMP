@@ -161,6 +161,79 @@ def _track_out(row: dict) -> dict:
     return t
 
 
+# --------------------------------------------------------------- playlist import
+
+_imports: dict[str, dict] = {}
+_imports_lock = threading.Lock()
+_IMPORT_TTL = 30 * 60
+
+
+class ImportPreviewIn(BaseModel):
+    url: str
+
+
+class ImportApplyIn(BaseModel):
+    preview_id: str
+    name: str | None = None
+    track_ids: list[str] | None = None
+
+
+def _prune_imports() -> None:
+    now = time.time()
+    for k in [k for k, v in _imports.items() if now - v["created"] > _IMPORT_TTL]:
+        _imports.pop(k, None)
+    if len(_imports) > 20:
+        oldest = sorted(_imports, key=lambda k: _imports[k]["created"])[:len(_imports) - 20]
+        for k in oldest:
+            _imports.pop(k, None)
+
+
+@router.post("/import/preview")
+def import_preview(body: ImportPreviewIn):
+    src = youtube.import_source(body.url)
+    if src is None:
+        raise HTTPException(400, "Not a YouTube playlist, album, or channel link")
+    kind, url = src
+    if kind == "mix":
+        raise HTTPException(400, "YouTube mixes are endless — use Radio for those")
+    try:
+        pl = youtube.fetch_playlist(url)
+    except youtube.TrackUnavailable as exc:
+        raise HTTPException(404, str(exc))
+    except youtube.ResolveError as exc:
+        raise HTTPException(502, str(exc))
+    if not pl["items"]:
+        raise HTTPException(404, "No playable tracks found in that source")
+    preview_id = uuid.uuid4().hex[:12]
+    pl.update(kind=kind, created=time.time())
+    with _imports_lock:
+        _prune_imports()
+        _imports[preview_id] = pl
+    return {
+        "preview_id": preview_id, "kind": kind, "title": pl["title"],
+        "uploader": pl["uploader"], "thumbnail": pl["thumbnail"],
+        "total_duration": pl["total_duration"], "truncated": pl["truncated"],
+        "items": [_track_out(t) for t in pl["items"]],
+    }
+
+
+@router.post("/import/apply")
+def import_apply(body: ImportApplyIn):
+    with _imports_lock:
+        pl = _imports.get(body.preview_id)
+    if not pl or time.time() - pl["created"] > _IMPORT_TTL:
+        raise HTTPException(404, "Preview expired — load the playlist again")
+    items = pl["items"]
+    if body.track_ids is not None:  # client may import a subset; ids outside the preview are ignored
+        by_id = {t["id"]: t for t in items}
+        items = [by_id[i] for i in dict.fromkeys(body.track_ids) if i in by_id]
+        if not items:
+            raise HTTPException(400, "No tracks selected")
+    pid = db.create_playlist(body.name or pl["title"] or "Imported playlist")
+    added = db.playlist_add_tracks(pid, items)
+    return {"playlist_id": pid, "added": added, "total": len(pl["items"])}
+
+
 # --------------------------------------------------------------- streaming proxy
 
 async def _proxy_stream(request: Request, video_id: str, fmt: str, head_only: bool):

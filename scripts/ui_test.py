@@ -181,6 +181,60 @@ def main():
         time.sleep(1)
         shot(page, "09-playlist")
 
+        # ── import: playlist URL in search routes to importer ──
+        NCS = "https://www.youtube.com/playlist?list=PLRBp0Fe2GpgnIh0AiYKh7o7HnYAej-5ph"
+        page.click('a[data-route="search"]')
+        page.wait_for_selector("#sr-input", timeout=8000)
+        page.fill("#sr-input", NCS)
+        page.press("#sr-input", "Enter")
+        page.wait_for_function("location.hash.startsWith('#/import')", timeout=10000)
+        check("import: search link routes to importer", page.evaluate("location.hash.startsWith('#/import?url=')"))
+
+        # preview renders with selectable tracks
+        page.wait_for_selector("#imp-rows .imp-row", timeout=90000)
+        time.sleep(0.8)
+        irows = page.locator("#imp-rows .imp-row").count()
+        check("import: preview rendered", irows >= 50, f"rows={irows}")
+        check("import: truncated badge on big playlist",
+              "first 500" in (page.text_content("#imp-head") or ""))
+        shot(page, "09a-import-preview")
+
+        # selection controls
+        page.click("#imp-none")
+        time.sleep(0.3)
+        check("import: none disables button", page.is_disabled("#imp-do"))
+        page.click("#imp-all")
+        time.sleep(0.3)
+        check("import: all re-enables", not page.is_disabled("#imp-do"))
+        n_off = page.locator("#imp-rows .imp-row.unchecked").count()
+        first_row = page.locator("#imp-rows .imp-row >> nth=0")
+        first_row.click()
+        time.sleep(0.3)
+        check("import: row click toggles checkbox",
+              page.locator("#imp-rows .imp-row.unchecked").count() == n_off + 1)
+
+        # import 499 of 500 into a named playlist
+        page.fill("#imp-name", "Import Test Mix")
+        page.click("#imp-do")
+        page.wait_for_selector("#pl-list .tl-row", timeout=30000)
+        time.sleep(1.2)
+        prow = page.locator("#pl-list .tl-row").count()
+        check("import: playlist created from selection", prow == irows - 1, f"rows={prow}/{irows - 1}")
+        check("import: landed on playlist view", page.evaluate("location.hash").startswith("#/playlist/"))
+        shot(page, "09b-import-done")
+
+        # clean up via API
+        import json as _json
+        import urllib.request as _url
+        pid = page.evaluate("location.hash.split('/')[2].split('?')[0]")
+        for _ in range(3):  # dev-VM I/O can stall a write briefly — cleanup must not fail the suite
+            try:
+                _url.urlopen(_url.Request(f"{BASE}/api/playlists/{pid}", method="DELETE"), timeout=30).read()
+                break
+            except Exception:
+                time.sleep(1)
+
+
         # ── settings: themes & accent ─────────────────────────
         page.click("#btn-settings")
         page.wait_for_selector("#st-themes", timeout=8000)

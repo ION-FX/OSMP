@@ -1,6 +1,6 @@
 // Search — debounced live YouTube search, recent searches, genre browse chips.
 
-import { api, extractVideoId } from '../api.js';
+import { api, extractVideoId, isImportLink } from '../api.js';
 import { load, persist, rememberTracks } from '../store.js';
 import { icon } from '../components/icons.js';
 import { toastErr, toast } from '../components/toast.js';
@@ -87,7 +87,12 @@ export async function mount(root, params) {
     root.querySelector('#sr-browse').style.display = 'none';
     saveRecent(q);
 
-    // pasted YouTube link → jump straight to the track
+    // playlist/album/channel link → import view; single video → jump to the track
+    if (isImportLink(q)) {
+      results.innerHTML = `<div class="section-head-row"><h2>Opening importer for “${escapeHtml(q.slice(0, 48))}”…</h2></div>`;
+      location.hash = `#/import?url=${encodeURIComponent(q)}`;
+      return;
+    }
     const vid = extractVideoId(q);
     if (vid) {
       results.innerHTML = `<div class="section-head-row"><h2>From link</h2></div><div id="sr-direct"></div>`;

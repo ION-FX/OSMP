@@ -71,6 +71,11 @@ export const api = {
   reorderPlaylist: (id, order) =>
     req(`/api/playlists/${id}/tracks`, { method: 'PUT', body: { order } }),
 
+  // import from YouTube playlists/albums/channels
+  importPreview: (url) => req('/api/import/preview', { method: 'POST', body: { url } }),
+  importApply:   (preview_id, name, track_ids) =>
+    req('/api/import/apply', { method: 'POST', body: { preview_id, name, track_ids } }),
+
   // radio / llm
   radio:         (seed, count = 25) =>
     req(`/api/radio/generate?seed=${encodeURIComponent(seed)}&count=${count}`),
@@ -134,4 +139,20 @@ export function extractVideoId(input) {
   if (m) return m[1];
   if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
   return null;
+}
+
+// True when the input points at an importable YouTube playlist / album /
+// channel (not a single video, not an endless RD mix). Mirrors the server's
+// import_source() so links route to the import view before they degrade to
+// a keyword search.
+export function isImportLink(input) {
+  let s = (input || '').trim();
+  if (!s || /\s/.test(s)) return false;
+  if (/^www\./i.test(s)) s = 'https://' + s;
+  if (!/^https?:\/\//i.test(s)) return /^(PL|OL|UU)[A-Za-z0-9_-]{8,}$/.test(s);
+  const list = s.match(/[?&]list=([A-Za-z0-9_-]+)/);
+  if (list) return !/^(RD|UL|MM)/.test(list[1]);
+  if (/^https?:\/\/([a-z0-9-]+\.)?youtube\.com\/(channel\/[^/?#]+|@[^/?#]+|c\/[^/?#]+|user\/[^/?#]+)/i.test(s)) return true;
+  if (/^https?:\/\/music\.youtube\.com\/browse\//i.test(s)) return true;
+  return false;
 }

@@ -13,6 +13,7 @@ export async function mount(root) {
     <div class="view-head">
       <h1>Library</h1>
       <span class="spacer"></span>
+      <a class="btn ghost" href="#/import" id="lb-import">${icon('download', 16)} Import from YouTube</a>
       <button class="btn primary" id="lb-new">${icon('plus', 16)} New playlist</button>
     </div>
 

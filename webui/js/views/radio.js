@@ -1,6 +1,6 @@
 // Radio — algorithmic playlist generation + optional LLM curator.
 
-import { api } from '../api.js';
+import { api, isImportLink } from '../api.js';
 import { get, load, persist, rememberTracks } from '../store.js';
 import { icon } from '../components/icons.js';
 import { toast, toastOk, toastErr } from '../components/toast.js';
@@ -140,6 +140,12 @@ export async function mount(root, params) {
   async function generate(seed) {
     seed = (seed || '').trim();
     if (!seed) { toast('Give the radio a seed — artist, song or mood'); seedInput.focus(); return; }
+    // a pasted playlist/channel link belongs to the importer, not radio
+    if (isImportLink(seed)) {
+      toast('Opening the importer — playlists aren’t radio seeds', { icon: 'info' });
+      location.hash = `#/import?url=${encodeURIComponent(seed)}`;
+      return;
+    }
     goBtn.disabled = true;
     goBtn.innerHTML = `<span class="spin" style="display:flex">${icon('spinner', 16)}</span> Tuning…`;
     results.innerHTML = `

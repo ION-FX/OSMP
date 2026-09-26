@@ -9,6 +9,7 @@ const routes = {
   radio:    () => import('./views/radio.js'),
   library:  () => import('./views/library.js'),
   playlist: () => import('./views/playlist.js'),
+  import:   () => import('./views/import.js'),
   settings: () => import('./views/settings.js'),
 };
 

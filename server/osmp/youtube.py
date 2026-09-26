@@ -73,9 +73,9 @@ def _base_opts(**overrides) -> dict:
 def _translate(exc: Exception, vid: str) -> YouTubeError:
     msg = str(exc)
     low = msg.lower()
-    if any(k in low for k in ("private video", "removed", "unavailable", "not available",
-                              "age-restrict", "sign in to confirm", "members-only",
-                              "premieres", "copyright")):
+    if any(k in low for k in ("private video", "is private", "removed", "unavailable",
+                              "not available", "age-restrict", "sign in to confirm",
+                              "members-only", "premieres", "copyright", "does not exist")):
         return TrackUnavailable(f"{vid}: {msg[:200]}")
     return ResolveError(f"{vid}: {msg[:200]}")
 
@@ -90,10 +90,13 @@ def _entry_to_track(e: dict) -> dict | None:
     if not is_video_id(vid):
         return None
     title = e.get("title") or "Unknown title"
+    artist = e.get("uploader") or e.get("channel") or e.get("artist") or "Unknown artist"
+    if artist.endswith(" - Topic"):  # official artist channels → clean name
+        artist = artist[: -len(" - Topic")]
     return {
         "id": vid,
         "title": title,
-        "artist": e.get("uploader") or e.get("channel") or e.get("artist") or "Unknown artist",
+        "artist": artist,
         "duration": e.get("duration"),
         "thumbnail": THUMB_URL.format(vid=vid),
         "source": "youtube",
@@ -212,6 +215,101 @@ def related_mix(video_id: str, limit: int = 40) -> list[dict]:
         if t and t["id"] != video_id:
             out.append(t)
     return out
+
+
+# ------------------------------------------------------------- playlist import
+
+_IMPORT_LIST_RE = re.compile(r"[?&]list=([A-Za-z0-9_-]+)")
+_PLAYLIST_ID_RE = re.compile(r"^(PL|OL|UU|FL|LL|RD|UL|MM)[A-Za-z0-9_-]{8,}$")
+_CHANNEL_URL_RE = re.compile(
+    r"^https?://(?:[a-z0-9-]+\.)?youtube\.com/"
+    r"(?P<path>channel/[^/?#]+|@[^/?#]+|c/[^/?#]+|user/[^/?#]+)"
+    r"(?P<tab>/(?:videos|shorts|streams))?/?$", re.IGNORECASE)
+# yt-dlp flat entries for unavailable videos carry these literal titles
+_DEAD_TITLE_RE = re.compile(r"^\[(private|deleted|unavailable|blocked|video unavailable)",
+                            re.IGNORECASE)
+
+
+def import_source(q: str) -> tuple[str, str] | None:
+    """Classify a pasted string as an importable YouTube source.
+
+    Returns (kind, canonical_url) with kind in {"playlist", "channel", "mix"},
+    or None when the string is neither a playlist/album/channel link nor a
+    bare playlist id.
+    """
+    s = (q or "").strip()
+    if not s or " " in s:
+        return None
+    low = s.lower()
+    if low.startswith("www."):
+        s, low = "https://" + s, "https://" + low
+    is_url = low.startswith("http://") or low.startswith("https://")
+
+    if not is_url:
+        if _PLAYLIST_ID_RE.match(s):
+            if s.startswith(("RD", "UL", "MM")):
+                return ("mix", s)
+            return ("playlist", f"https://www.youtube.com/playlist?list={s}")
+        return None
+
+    # any URL carrying list= (watch?v=…&list=…, /playlist, music.youtube.com)
+    m = _IMPORT_LIST_RE.search(s)
+    if m:
+        lid = m.group(1)
+        if lid.startswith(("RD", "UL", "MM")):
+            return ("mix", s)
+        return ("playlist", f"https://www.youtube.com/playlist?list={lid}")
+    if "music.youtube.com/browse/" in low:  # YouTube Music album
+        return ("playlist", s)
+    m = _CHANNEL_URL_RE.match(s)
+    if m:
+        tab = m.group("tab") or "/videos"  # without a tab yt-dlp returns a tabs-tree, not a track list
+        return ("channel", f"https://www.youtube.com/{m.group('path')}{tab}")
+    return None
+
+
+def fetch_playlist(url: str, limit: int = 500) -> dict:
+    """Flat-extract a playlist/album/channel-uploads list into importable tracks."""
+    limit = max(1, min(int(limit), 500))
+    opts = _base_opts(extract_flat="in_playlist", playlistend=limit)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:  # noqa: BLE001
+        raise _translate(exc, "playlist") from exc
+    if not info:
+        raise TrackUnavailable(url[:80])
+    entries = [e for e in (info.get("entries") or []) if e]
+    if entries and any(str(e.get("_type", "")).endswith("playlist") for e in entries):
+        # a channel root slipped through — we asked for videos, got tab playlists
+        raise ResolveError("source returned channel tabs, not a track list")
+    items, seen = [], set()
+    raw_count = 0
+    for e in entries:
+        raw_count += 1
+        if _DEAD_TITLE_RE.match(e.get("title") or ""):
+            continue
+        t = _entry_to_track(e)
+        if not t or t["id"] in seen:
+            continue
+        seen.add(t["id"])
+        items.append(t)
+    uploader = (info.get("uploader") or info.get("channel")
+                or info.get("uploader_id") or "")
+    # channel-tab flat entries carry no uploader — attribute them to the channel
+    if uploader:
+        for t in items:
+            if t["artist"] == "Unknown artist":
+                t["artist"] = uploader
+    thumb = info.get("thumbnail") or (items[0]["thumbnail"] if items else None)
+    return {
+        "title": info.get("title") or "Imported playlist",
+        "uploader": uploader,
+        "thumbnail": thumb,
+        "items": items,
+        "total_duration": sum(t.get("duration") or 0 for t in items),
+        "truncated": raw_count >= limit,
+    }
 
 
 def download_audio(video_id: str, dest_dir: Path,
