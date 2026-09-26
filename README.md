@@ -88,7 +88,7 @@ window), `--port N`, `--data DIR`.
 
 ## Android
 
-Download `osmp-android.apk` from Releases (or build it, see below). On first
+Download `osmp-android-0.1.0.apk` from Releases (or build it, see below). On first
 launch, enter your server address — e.g. `http://192.168.1.20:8790` — and the
 app connects. The download button then saves tracks **on the device**; they
 keep playing in airplane mode via a native request interceptor.
