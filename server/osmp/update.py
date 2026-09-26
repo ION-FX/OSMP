@@ -87,12 +87,19 @@ def current_info() -> dict:
 
 def _git(args: list[str], token: str | None = None, cwd: Path | None = None
          ) -> subprocess.CompletedProcess:
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     cmd = ["git"]
     if token:
-        cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
+        # GitHub's git endpoints answer Bearer headers with a 401 challenge —
+        # they want Basic auth. Feed the token through an inline credential
+        # helper reading it from the child's env (never on the command line).
+        env["OSMP_UPDATE_TOKEN"] = token
+        helper = ("!f() { echo 'username=x-access-token'; "
+                  "echo \"password=$OSMP_UPDATE_TOKEN\"; }; f")
+        cmd += ["-c", "credential.helper=", "-c", f"credential.helper={helper}"]
     cmd += args
     return subprocess.run(cmd, capture_output=True, text=True, timeout=180,
-                          cwd=cwd)
+                          cwd=cwd, env=env)
 
 
 def _pip(args: list[str], log) -> bool:
