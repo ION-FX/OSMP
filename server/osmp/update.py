@@ -383,8 +383,13 @@ def _restart(job: dict, new_appimage: Path | None = None) -> None:
         path = appimage_path()
         data = cfg.data_dir
         port = cfg.port
-        script = (f'sleep 2; mv -f "{new_appimage}" "{path}" && '
-                  f'exec "{path}" --port {port} --data "{data}"')
+        # plain launch first; on distros without libfuse2 the runtime exits
+        # non-zero and we fall back to extract-and-run automatically
+        script = (f'sleep 2\n'
+                  f'mv -f "{new_appimage}" "{path}"\n'
+                  f'"{path}" --port {port} --data "{data}" || '
+                  f'exec "{path}" --appimage-extract-and-run '
+                  f'--port {port} --data "{data}"\n')
         _log(job, f"relaunching AppImage on port {port}")
     else:
         root = repo_root()

@@ -32,6 +32,10 @@
   live from cover art, animated equalizers, view transitions, sleep timer with
   volume fade-out, queue with drag-reorder, Media Session / lock-screen
   integration, installable PWA.
+- **One-press updates** — Settings → Updates checks GitHub and updates the
+  whole install (source: git + pip; AppImage: swaps in the new release) and
+  restarts itself. A dedicated quick button refreshes yt-dlp alone for when
+  YouTube changes and playback breaks.
 
 ## Screenshots
 
@@ -119,8 +123,18 @@ Everything lives in the Settings view (or `~/.local/share/osmp/osmp.db`):
 |---|---|
 | Theme / accent | Aurora Dark, Midnight (OLED), Daylight + 8 accent hues |
 | AI Curator | `base_url`, `api_key`, `model` for any OpenAI-compatible API |
+| Updates | Optional GitHub token (private repos); check / update / yt-dlp refresh |
 | Access PIN | Optional lock for the web UI + API (cookie session) |
 | Stream format | `auto` / `m4a` (max compatibility) / `opus` (best quality) |
+
+### Staying up to date
+
+Settings → **Updates** → *Check for updates* → *Update now*. The server
+fetches the latest code, refreshes Python deps (including yt-dlp), restarts
+itself, and the page reconnects automatically. Source installs track
+`origin/main`; the AppImage replaces itself with the newest release asset.
+If the repo is private, paste a GitHub token once — it is stored server-side
+only. Android updates by installing the latest APK from the Releases page.
 
 Keyboard: `Space` play/pause · `Shift+←/→` prev/next · `M` mute.
 
