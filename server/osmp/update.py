@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -348,30 +349,63 @@ def _appimage_job(job: dict) -> None:
     _log(job, f"downloading {asset['name']} ({asset['size'] / 1e6:.0f} MB)…")
     job["phase"] = "downloading"
     tmp = Path(path + ".update")
-    size = asset.get("size") or 0
-    done = 0
     try:
-        with httpx.stream("GET", asset["browser_download_url"],
-                          headers=_gh_headers(), timeout=60,
-                          follow_redirects=True) as r:
-            if r.status_code != 200:
-                raise UpdateError(f"asset download failed: HTTP {r.status_code}")
-            with open(tmp, "wb") as f:
-                for chunk in r.iter_bytes(1024 * 512):
-                    f.write(chunk)
-                    done += len(chunk)
-                    if size:
-                        job["progress"] = round(done / size, 3)
-                        if done // (size // 4 or 1) != (done - len(chunk)) // (size // 4 or 1):
-                            _log(job, f"  {done / 1e6:.0f} / {size / 1e6:.0f} MB")
+        _download_asset(asset, tmp, job)
+    except UpdateError:
+        tmp.unlink(missing_ok=True)
+        raise
     except httpx.HTTPError as exc:
         tmp.unlink(missing_ok=True)
         raise UpdateError(f"download failed: {exc}") from exc
     tmp.chmod(0o755)
-    _log(job, f"downloaded {done / 1e6:.0f} MB — swapping on restart")
+    _log(job, "download complete — swapping on restart")
     job["phase"] = "restarting"
     _log(job, "restarting OSMP…")
     _restart(job, new_appimage=tmp)
+
+
+def _download_asset(asset: dict, tmp: Path, job: dict) -> None:
+    """Release assets on private repos are only reachable through the API
+    asset endpoint (octet-stream), which 302s to signed S3 — auth must be
+    dropped once we leave api.github.com."""
+    size = asset.get("size") or 0
+    done = 0
+    last_pct = -1
+    if _token():
+        url = f"{_API}/releases/assets/{asset['id']}"
+        headers = {"Accept": "application/octet-stream",
+                   "Authorization": f"Bearer {_token()}"}
+    else:
+        url = asset["browser_download_url"]
+        headers = {"Accept": "application/octet-stream"}
+
+    for _ in range(6):
+        with httpx.stream("GET", url, headers=headers, timeout=60,
+                          follow_redirects=False) as r:
+            if r.status_code in (301, 302, 303, 307, 308):
+                url = r.headers.get("location") or ""
+                if not url:
+                    raise UpdateError("asset redirect without Location")
+                if urlparse(url).hostname != "api.github.com":
+                    headers = {k: v for k, v in headers.items()
+                               if k.lower() != "authorization"}
+                continue
+            if r.status_code != 200:
+                raise UpdateError(f"asset download failed: HTTP {r.status_code}")
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_bytes(512 * 1024):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if size:
+                        job["progress"] = round(min(done / size, 1.0), 3)
+                        pct = int(done / size * 4)
+                        if pct != last_pct:
+                            last_pct = pct
+                            _log(job, f"  {done / 1e6:.0f} / {size / 1e6:.0f} MB")
+            if size and done != size:
+                raise UpdateError(f"truncated download: {done} of {size} bytes")
+            return
+    raise UpdateError("too many redirects while downloading the asset")
 
 
 # ── restart (the delicate bit) ───────────────────────────────────────
