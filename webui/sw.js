@@ -1,9 +1,10 @@
 /* OSMP service worker — cache-first app shell so the UI loads instantly and
- * even works when the server is briefly unreachable. API calls and audio
- * streams are NEVER cached here (offline playback is served by the server
- * library or the Android native layer). */
+ * even works when the server is briefly unreachable. Audio streams get a
+ * dedicated cache: full (non-Range) fetches are stored, and when the server
+ * is down cached tracks are served so saved music keeps playing. */
 
-const CACHE = 'osmp-shell-v4';
+const CACHE = 'osmp-shell-v5';
+const AUDIO_CACHE = 'osmp-audio-v1';
 const SHELL = [
   '/',
   '/index.html',
@@ -53,12 +54,44 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
-  if (url.pathname.startsWith('/api/')) return; // never touch API/streams
 
-  // same-origin shell: stale-while-revalidate
+  // audio streams: network-first with an offline fallback cache.
+  // Full GETs (200) fill the cache — that's what "Save to this device" does
+  // and what happens when a track plays end-to-end. Range requests (seeking)
+  // go to the network; if it's down, Chromium slices the cached response.
+  if (url.pathname.startsWith('/api/stream/') ||
+      url.pathname.startsWith('/api/library/stream/')) {
+    if (url.searchParams.has('osmpsave')) return; // page-side "save offline" fetch — no SW handling
+    const pathname = url.pathname;
+    const cachedAudio = () => caches.open(AUDIO_CACHE).then(async (cache) => {
+      const hit = await cache.match(e.request, { ignoreSearch: true, ignoreVary: true });
+      if (hit) return hit;
+      const keys = await cache.keys();
+      const k = keys.find(k => new URL(k.url).pathname === pathname);
+      return k ? cache.match(k, { ignoreVary: true }) : undefined;
+    });
+    e.respondWith(
+      fetch(e.request).then(resp => {
+        if (resp && resp.status === 200 && resp.type === 'basic' &&
+            !e.request.headers.has('range')) {
+          const clone = resp.clone();
+          caches.open(AUDIO_CACHE).then(c => c.put(e.request, clone));
+        }
+        return resp;
+      }).catch(() => cachedAudio().then(hit => hit || Response.error()))
+    );
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/')) return; // never touch other API calls
+
+  // same-origin shell: stale-while-revalidate.
+  // ignoreVary: the CORS middleware stamps `Vary: Origin` on everything and
+  // module scripts fetch with an Origin header while precache didn't — without
+  // this, offline module loads miss the cache and the app never boots.
   if (url.origin === self.location.origin) {
     e.respondWith(
-      caches.match(e.request).then(cached => {
+      caches.match(e.request, { ignoreVary: true }).then(cached => {
         const fetchPromise = fetch(e.request).then(resp => {
           if (resp && resp.status === 200 && resp.type === 'basic') {
             const clone = resp.clone();

@@ -13,8 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, youtube
-from .api import _AUTH_EXEMPT, _authorized, router
+from . import auth, db, youtube
+from .api import _AUTH_EXEMPT, current_user, router
 from .config import Config, get_config, set_config
 
 log = logging.getLogger("osmp")
@@ -44,6 +44,10 @@ def sys_executable_dir() -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db(get_config())
+    try:
+        auth.purge_expired()
+    except Exception:  # noqa: BLE001 — housekeeping, never fatal
+        pass
     app.state.http = httpx.AsyncClient(
         follow_redirects=True,
         timeout=httpx.Timeout(30.0, read=120.0, write=30.0, pool=30.0),
@@ -73,10 +77,13 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     )
 
     @app.middleware("http")
-    async def pin_gate(request: Request, call_next):
+    async def auth_gate(request: Request, call_next):
         path = request.url.path
         if path.startswith("/api") and path not in _AUTH_EXEMPT:
-            if not _authorized(request.cookies.get("osmp_session")):
+            if current_user(request) is None:
+                # before the first admin exists, only /api/setup may mutate;
+                # everything else stays locked so a LAN server isn't usable
+                # until its owner claims it
                 return JSONResponse({"detail": "authentication required"}, status_code=401)
         return await call_next(request)
 

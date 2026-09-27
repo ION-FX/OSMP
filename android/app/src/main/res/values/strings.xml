@@ -2,11 +2,15 @@
 <resources>
     <string name="app_name">OSMP</string>
     <string name="setup_title">Connect to your OSMP server</string>
-    <string name="setup_hint">The address of the machine running OSMP — on your home network that is usually something like http://192.168.1.20:8790</string>
+    <string name="setup_hint">Server address plus your OSMP account. Accounts are created by the admin — open the server in a browser once and set up the admin account there.</string>
     <string name="setup_url_hint">http://192.168.1.20:8790</string>
-    <string name="setup_connect">Connect</string>
-    <string name="setup_testing">Testing…</string>
+    <string name="setup_user_hint">Username</string>
+    <string name="setup_pass_hint">Password</string>
+    <string name="setup_connect">Sign in</string>
+    <string name="setup_testing">Signing in…</string>
     <string name="setup_fail">Could not reach an OSMP server at that address</string>
+    <string name="setup_auth_fail">Wrong username or password for that server</string>
+    <string name="setup_needs_setup">Server found but not set up yet — open it in a browser first to create the admin account</string>
     <string name="setup_ok">Connected!</string>
     <string name="notif_channel">Playback</string>
     <string name="notif_title">OSMP</string>

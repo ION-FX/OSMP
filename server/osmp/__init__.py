@@ -1,3 +1,3 @@
 """OSMP — Open-Source Music Player. A self-hosted, YouTube-backed music server."""
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"

@@ -51,11 +51,32 @@ CREATE TABLE IF NOT EXISTS settings(
 );
 CREATE TABLE IF NOT EXISTS history(
   track_id TEXT NOT NULL,
-  played_at REAL NOT NULL
+  played_at REAL NOT NULL,
+  user_id  TEXT NOT NULL DEFAULT 'local'
 );
 CREATE INDEX IF NOT EXISTS idx_history_time ON history(played_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pt_pos ON playlist_tracks(playlist_id, position);
+CREATE TABLE IF NOT EXISTS users(
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  username   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  pwhash     TEXT NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'user',
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions(
+  token      TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 """
+
+_MIGRATIONS = (
+    # v0.1.x databases have a user-less history table
+    ("ALTER TABLE history ADD COLUMN user_id TEXT NOT NULL DEFAULT 'local'",),
+)
 
 
 _local = threading.local()
@@ -89,6 +110,14 @@ def init_db(cfg: Config | None = None) -> None:
             return
         with _connect(cfg) as conn:
             conn.executescript(SCHEMA)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(history)")}
+            for stmt, in _MIGRATIONS:  # idempotent: skip if column already present
+                if "user_id" in stmt and "user_id" in cols:
+                    continue
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # already applied under a different shape
         _initialized = True
 
 
@@ -149,27 +178,31 @@ def delete_track(track_id: str, cfg: Config | None = None) -> None:
         conn.execute("DELETE FROM history WHERE track_id=?", (track_id,))
 
 
-def record_play(track_id: str, cfg: Config | None = None) -> None:
+def record_play(track_id: str, user_id: str = "local", cfg: Config | None = None) -> None:
     cfg = cfg or get_config()
     now = time.time()
     with _connect(cfg) as conn:
         conn.execute(
             "UPDATE tracks SET play_count=play_count+1, last_played=? WHERE id=?",
             (now, track_id))
-        conn.execute("INSERT INTO history(track_id, played_at) VALUES(?,?)", (track_id, now))
+        conn.execute("INSERT INTO history(track_id, played_at, user_id) VALUES(?,?,?)",
+                     (track_id, now, user_id))
         # keep history bounded
         conn.execute(
             """DELETE FROM history WHERE rowid NOT IN
                (SELECT rowid FROM history ORDER BY played_at DESC LIMIT 5000)""")
 
 
-def recent_history(limit: int = 12, cfg: Config | None = None) -> list[dict]:
+def recent_history(limit: int = 12, user_id: str | None = None,
+                   cfg: Config | None = None) -> list[dict]:
     cfg = cfg or get_config()
-    with _connect(cfg) as conn:
-        rows = conn.execute(
-            """SELECT t.* FROM history h JOIN tracks t ON t.id=h.track_id
-               GROUP BY h.track_id ORDER BY MAX(h.played_at) DESC LIMIT ?""",
-            (limit,)).fetchall()
+    q = """SELECT t.* FROM history h JOIN tracks t ON t.id=h.track_id
+           {where} GROUP BY h.track_id ORDER BY MAX(h.played_at) DESC LIMIT ?"""
+    if user_id:
+        rows = _connect(cfg).execute(
+            q.format(where="WHERE h.user_id=?"), (user_id, limit)).fetchall()
+    else:
+        rows = _connect(cfg).execute(q.format(where=""), (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 

@@ -174,3 +174,9 @@
   :root { --player-h: 66px; }
   .pb-meta, .pb-timeline .pb-time { display: none; }
 }
+
+/* sidebar user chip + logout */
+.nav-item .spacer { flex: 1; }
+#btn-user { cursor: default; width: 100%; }
+#btn-logout { pointer-events: auto; cursor: pointer; }
+#btn-logout:hover { color: hsl(4 90% 65%); }

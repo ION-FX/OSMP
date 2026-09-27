@@ -85,7 +85,8 @@
 
     <div class="sidebar-footer">
       <button id="btn-settings" class="nav-item" title="Settings"><span class="nav-ico" data-icon="settings"></span><span>Settings</span></button>
-      <div id="offline-pill" class="offline-pill hidden" title="Server unreachable — showing cached UI"><span data-icon="cloud-off"></span> offline</div>
+      <div id="offline-pill" class="offline-pill hidden" title="Server unreachable — playing what you have. Changes will sync."><span data-icon="cloud-off"></span><span class="txt">offline — will sync</span></div>
+      <button id="btn-user" class="nav-item hidden" title="Account"><span class="nav-ico" data-icon="user"></span><span id="user-name">…</span><span class="spacer"></span><span class="nav-ico" data-icon="log-out" id="btn-logout" title="Sign out" style="opacity:.7"></span></button>
     </div>
   </aside>
 
@@ -181,15 +182,20 @@
 <div id="modal-host"></div>
 <div id="ctx-menu" class="hidden"></div>
 
-<!-- PIN gate -->
+<!-- Auth gate: login, or first-run admin setup -->
 <div id="pin-overlay" class="hidden">
-  <form id="pin-form" class="pin-card">
-    <div class="pin-logo">🔒</div>
-    <h2>OSMP is locked</h2>
-    <p>Enter your access PIN</p>
-    <input id="pin-input" type="password" inputmode="numeric" autocomplete="current-password" maxlength="32" autofocus>
-    <button type="submit" class="btn primary block">Unlock</button>
-    <div id="pin-error" class="pin-error hidden">Wrong PIN — try again</div>
+  <form id="auth-form" class="pin-card">
+    <div class="pin-logo" id="auth-logo">🔒</div>
+    <h2 id="auth-title">Sign in</h2>
+    <p id="auth-sub">to this OSMP server</p>
+    <input id="auth-user" type="text" autocomplete="username" maxlength="32"
+           placeholder="Username" spellcheck="false" autofocus>
+    <input id="auth-pass" type="password" autocomplete="current-password"
+           maxlength="128" placeholder="Password">
+    <input id="auth-name" type="text" maxlength="60" placeholder="Server name (optional)"
+           spellcheck="false" class="hidden">
+    <button type="submit" class="btn primary block" id="auth-go">Sign in</button>
+    <div id="pin-error" class="pin-error hidden">Wrong username or password</div>
   </form>
 </div>
 

@@ -2,7 +2,7 @@
 // dialog, context menu, sleep-timer dialog, like handling.
 
 import { api, streamUrl, thumbUrl, fmtTime } from './api.js';
-import { get, set, sub, markOffline, rememberTracks, persist } from './store.js';
+import { get, set, sub, load, markOffline, rememberTracks, persist } from './store.js';
 import { icon, hydrateIcons } from './components/icons.js';
 import { toast, toastOk, toastErr } from './components/toast.js';
 import { customDialog, promptDialog } from './components/dialog.js';
@@ -76,19 +76,32 @@ export async function toggleLike(track) {
   if (!track) return;
   try {
     const liked = await ensureLikedPlaylist();
-    const full = await api.playlist(liked.id);
-    const ids = full.tracks.map(t => t.id);
+    // offline: trust the cached track ids (deep refresh) so the like still
+    // lands — the mutation itself is journaled and replays on reconnect
+    const offline = get('online') === false;
+    if (!offline) {
+      const full = await api.playlist(liked.id);
+      liked.trackIds = full.tracks.map(t => t.id);
+    }
+    const ids = liked.trackIds || [];
     if (ids.includes(track.id)) {
       await api.removeFromPlaylist(liked.id, track.id);
+      liked.trackIds = ids.filter(i => i !== track.id);
       toast('Removed from Liked', { icon: 'heart' });
     } else {
       await api.addToPlaylist(liked.id, [{
         id: track.id, title: track.title, artist: track.artist,
         duration: track.duration, thumbnail: track.thumbnail,
       }]);
+      liked.trackIds = [...ids, track.id];
       toastOk('Saved to Liked', { icon: 'heart' });
     }
-    await refreshPlaylistsDeep();
+    if (offline) {
+      renderSidebarPlaylists();
+      updateLikeButtons();
+    } else {
+      await refreshPlaylistsDeep();
+    }
   } catch (e) {
     toastErr(e.detail || e.message || 'Like failed');
   }
@@ -233,7 +246,70 @@ export function isTrackOffline(track) {
   if (!track) return false;
   const b = bridge();
   try { if (b && b.isDownloaded && b.isDownloaded(track.id)) return true; } catch { /* */ }
+  if (deviceOfflineIds().includes(track.id)) return true;
   return !!track.offline;
+}
+
+// ── device offline (browser/desktop clients, Cache API) ──────────────
+// Server downloads live on the OSMP machine; "Save to this device" pulls the
+// audio into this browser's Cache so it plays with the server unreachable.
+// The service worker serves osmp-audio-v1 when the network is down.
+
+export const AUDIO_CACHE = 'osmp-audio-v1';
+const DEV_KEY = 'deviceOffline';
+
+export function deviceOfflineIds() {
+  return load(DEV_KEY, []);
+}
+
+function deviceSourceUrl(track) {
+  return track.offline
+    ? `/api/library/stream/${encodeURIComponent(track.id)}`
+    : `/api/stream/${encodeURIComponent(track.id)}?fmt=${localStorage.getItem('osmp.format') || 'auto'}`;
+}
+
+export async function saveToDevice(track) {
+  if (!('caches' in window)) { toastErr("This browser can't store offline audio"); return; }
+  if (isDeviceOffline(track)) { toast('Already saved on this device', { icon: 'download-check' }); return; }
+  toast(`Saving offline…`, { icon: 'download', timeout: 2500 });
+  // osmpsave=1 bypasses the service worker so the page owns this fetch and
+  // the stream lands in the cache exactly once
+  const base = deviceSourceUrl(track);
+  const url = base + (base.includes('?') ? '&' : '?') + 'osmpsave=1';
+  const ctl = new AbortController();
+  const kill = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const resp = await fetch(url, { signal: ctl.signal });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const cache = await caches.open(AUDIO_CACHE);
+    await cache.put(base, resp);  // stored under the player-facing URL
+    persist(DEV_KEY, [...deviceOfflineIds(), track.id]);
+    toastOk(`Saved offline — ${track.title}`, { icon: 'download-check' });
+    import('./player.js').then(p => p.refreshOfflineState?.(track.id));
+  } catch (e) {
+    toastErr(e.status === 0 || e.name === 'AbortError'
+      ? 'Need the server once to save' : 'Save failed');
+  } finally {
+    clearTimeout(kill);
+  }
+}
+
+export function isDeviceOffline(track) {
+  return !!track && deviceOfflineIds().includes(track.id);
+}
+
+export async function removeDeviceOffline(track) {
+  try {
+    const cache = await caches.open(AUDIO_CACHE);
+    const target = new URL(deviceSourceUrl(track), location.origin).pathname;
+    const keys = await cache.keys();
+    await Promise.all(keys
+      .filter(k => new URL(k.url).pathname === target)
+      .map(k => cache.delete(k)));
+  } catch { /* cache unavailable — still drop the flag */ }
+  persist(DEV_KEY, deviceOfflineIds().filter(id => id !== track.id));
+  toast('Removed from this device', { icon: 'trash' });
+  import('./player.js').then(p => p.refreshOfflineState?.(track.id));
 }
 
 // ── add to playlist dialog ───────────────────────────────────────────
@@ -362,6 +438,8 @@ export function showTrackMenu(x, y, track, extra = {}) {
   closeTrackMenu();
   const menu = document.getElementById('ctx-menu');
   const offline = isTrackOffline(track);
+  const dev = !bridge() && 'caches' in window;
+  const devSaved = isDeviceOffline(track);
   menu.innerHTML = `
     <button class="ctx-item" data-a="play">${icon('play', 16, true)} Play</button>
     <button class="ctx-item" data-a="next">${icon('queue', 16)} Play next</button>
@@ -369,6 +447,7 @@ export function showTrackMenu(x, y, track, extra = {}) {
     <div class="ctx-sep"></div>
     <button class="ctx-item" data-a="playlist">${icon('playlist-plus', 16)} Add to playlist…</button>
     <button class="ctx-item" data-a="download">${icon(offline ? 'trash' : 'download', 16)} ${offline ? 'Remove download' : 'Download'}</button>
+    ${dev ? `<button class="ctx-item" data-a="device">${icon(devSaved ? 'trash' : 'download', 16)} ${devSaved ? 'Remove from this device' : 'Save to this device'}</button>` : ''}
     <button class="ctx-item" data-a="radio">${icon('radio', 16)} Start radio from this</button>
     <div class="ctx-sep"></div>
     <button class="ctx-item" data-a="copy">${icon('link', 16)} Copy YouTube link</button>
@@ -386,6 +465,7 @@ export function showTrackMenu(x, y, track, extra = {}) {
     queue: () => import('./player.js').then(p => { p.enqueue(track); toast(`Added to queue — ${track.title}`, { icon: 'queue' }); }),
     playlist: () => addToPlaylistDialog(track),
     download: () => offline ? removeDownload(track) : downloadTrack(track),
+    device: () => devSaved ? removeDeviceOffline(track) : saveToDevice(track),
     radio: () => { location.hash = `#/radio?seed=${encodeURIComponent(track.id)}`; },
     copy: () => {
       const url = `https://www.youtube.com/watch?v=${track.id}`;

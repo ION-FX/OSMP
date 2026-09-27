@@ -1,6 +1,7 @@
-// OSMP boot — config fetch, PIN gate, module init, service worker, connectivity.
+// OSMP boot — config fetch, auth gate (login / first-run setup), module init,
+// service worker, connectivity + offline sync.
 
-import { api, setUnauthorizedHandler } from './api.js';
+import { api, setUnauthorizedHandler, outboxCount, outboxFlush } from './api.js';
 import { get, set, sub, load, persist } from './store.js';
 import { initTheme } from './theme.js';
 import { hydrateIcons } from './components/icons.js';
@@ -24,27 +25,31 @@ async function boot() {
   initTheme();
   hydrateIcons();
 
-  // PIN gate handler (shared by boot + api 401s)
-  setUnauthorizedHandler(showPinGate);
+  // auth gate handler (shared by boot + api 401s)
+  setUnauthorizedHandler(() => showAuthGate('login'));
 
   let cfg = null;
   try {
     cfg = await api.config();
   } catch (e) {
     // server unreachable — still boot UI from service-worker cache if present
-    cfg = { version: '?', auth_required: false, llm_configured: false, ffmpeg: false };
+    cfg = { version: '?', auth_required: false, llm_configured: false, ffmpeg: false, user: null };
     setOnline(false);
   }
   set({ config: cfg }, false);
 
-  if (cfg.auth_required) {
-    const ok = await showPinGate();
+  if (cfg.setup_required) {
+    const ok = await showAuthGate('setup');
+    if (!ok) return;
+  } else if (cfg.auth_required) {
+    const ok = await showAuthGate('login');
     if (!ok) return; // stays locked
   }
 
   initPlayer();
   initActions();
   wireGlobalUi();
+  renderUserChip(cfg.user || await safeMe());
 
   try {
     await refreshPlaylistsDeep();
@@ -54,50 +59,92 @@ async function boot() {
   registerSw();
   startConnectivityWatch();
 
-  // hide splash
+  // hide splash (already gone if the auth gate showed first)
   requestAnimationFrame(() => {
-    $('boot-splash').classList.add('done');
+    $('boot-splash')?.classList.add('done');
     $('app').classList.remove('hidden');
     $('player-bar').classList.add('hidden');
-    setTimeout(() => $('boot-splash').remove(), 600);
+    setTimeout(() => $('boot-splash')?.remove(), 600);
   });
 
   console.log('%c OSMP ', 'background:linear-gradient(115deg,#0fb8ad,#8b5cf6);color:#fff;font-weight:bold;border-radius:4px',
     `v${cfg.version} — self-hosted & happy`);
 }
 
-// ── PIN gate ─────────────────────────────────────────────────────────
+async function safeMe() {
+  try { return (await api.me()).user; } catch { return null; }
+}
 
-function showPinGate() {
+// ── auth gate (login / first-run admin setup) ────────────────────────
+
+function showAuthGate(mode) {
   return new Promise(resolve => {
     const ov = $('pin-overlay');
-    ov.classList.remove('hidden');
-    const form = $('pin-form');
-    const input = $('pin-input');
+    const form = $('auth-form');
+    const userInput = $('auth-user');
+    const passInput = $('auth-pass');
+    const nameInput = $('auth-name');
     const err = $('pin-error');
-    err.classList.add('hidden');
-    setTimeout(() => input.focus(), 80);
+    const go = $('auth-go');
 
-    const handler = async (e) => {
+    // the boot splash sits above everything — the gate replaces it visually
+    $('boot-splash')?.classList.add('done');
+    setTimeout(() => $('boot-splash')?.remove(), 600);
+
+    const isSetup = mode === 'setup';
+    $('auth-logo').textContent = isSetup ? '🎧' : '🔒';
+    $('auth-title').textContent = isSetup ? 'Set up your server' : 'Sign in';
+    $('auth-sub').textContent = isSetup
+      ? 'Create the admin account — you can invite others later in Settings'
+      : 'to this OSMP server';
+    nameInput.classList.toggle('hidden', !isSetup);
+    go.textContent = isSetup ? 'Create admin account' : 'Sign in';
+    err.classList.add('hidden');
+    ov.classList.remove('hidden');
+    setTimeout(() => (isSetup ? userInput : passInput).focus(), 80);
+
+    form.onsubmit = async (e) => {
       e.preventDefault();
-      const pin = input.value;
+      go.disabled = true;
       try {
-        await api.auth(pin);
+        const cfg = isSetup
+          ? await api.setup(userInput.value.trim(), passInput.value, nameInput.value.trim())
+          : await api.login(userInput.value.trim(), passInput.value);
+        set({ config: { ...(get('config') || {}), user: cfg.user, auth_required: false, setup_required: false } }, false);
         ov.classList.add('hidden');
-        form.removeEventListener('submit', handler);
+        form.onsubmit = null;
+        renderUserChip(cfg.user);
         resolve(true);
       } catch (ex) {
+        err.textContent = isSetup
+          ? (ex.detail || 'Could not create the account')
+          : (ex.status === 0 ? 'Server unreachable' : 'Wrong username or password');
         err.classList.remove('hidden');
-        input.value = '';
-        input.focus();
-        // re-trigger shake
+        passInput.value = '';
+        passInput.focus();
         err.style.animation = 'none';
         void err.offsetWidth;
         err.style.animation = '';
+      } finally {
+        go.disabled = false;
       }
     };
-    form.addEventListener('submit', handler);
   });
+}
+
+function renderUserChip(user) {
+  const chip = $('btn-user');
+  if (!user) { chip.classList.add('hidden'); return; }
+  chip.classList.remove('hidden');
+  $('user-name').textContent = user.name + (user.role === 'admin' ? ' · admin' : '');
+  $('btn-logout').onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      await api.logout();
+      location.reload();
+    } catch { toastErr('Sign out failed'); }
+  };
+  chip.title = `${user.name} (${user.role})`;
 }
 
 // ── global UI wiring ─────────────────────────────────────────────────
@@ -117,11 +164,7 @@ function startConnectivityWatch() {
       await api.health();
       setOnline(true);
     } catch {
-      setOnline(navigator.onLine === false ? false : get('online'));
-      // if browser thinks we're online but server is gone, mark offline
-      if (navigator.onLine) {
-        try { await api.health(); setOnline(true); } catch { setOnline(false); }
-      }
+      setOnline(false);
     }
   };
   ping();
@@ -132,7 +175,19 @@ function setOnline(on) {
   const was = get('online');
   set({ online: on }, false);
   $('offline-pill')?.classList.toggle('hidden', on);
-  if (was && !on) toast('Server unreachable — downloaded tracks still play', { icon: 'cloud-off', timeout: 5000 });
+  if (was && !on) toast('Offline — saved tracks still play, changes will sync', { icon: 'cloud-off', timeout: 5000 });
+  if (!was && on) {
+    // back online: flush everything the user did while offline
+    const pending = outboxCount();
+    if (pending > 0) {
+      outboxFlush().then(synced => {
+        if (synced > 0) toastOk(`Synced ${synced} offline change${synced === 1 ? '' : 's'}`, { icon: 'check' });
+        if (synced > 0) refreshPlaylistsDeep().catch(() => {});
+      });
+    }
+    // refresh stale views (playlists changed elsewhere may exist too)
+    refreshPlaylists().catch(() => {});
+  }
 }
 
 // ── service worker (PWA) ─────────────────────────────────────────────
@@ -142,11 +197,14 @@ function registerSw() {
   if (location.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(location.hostname)) {
     return; // SW needs a secure context
   }
-  window.addEventListener('load', () => {
+  const doRegister = () => {
     navigator.serviceWorker.register('/sw.js').catch(err => {
       console.warn('[app] SW registration failed', err);
     });
-  });
+  };
+  // the auth gate can hold boot past the load event — register right away then
+  if (document.readyState === 'complete') doRegister();
+  else window.addEventListener('load', doRegister);
 }
 
 boot().catch(err => {

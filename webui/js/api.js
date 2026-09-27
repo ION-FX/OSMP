@@ -22,6 +22,13 @@ async function req(path, opts = {}) {
   try {
     res = await fetch(path, init);
   } catch (e) {
+    if (method !== 'GET' && !path.startsWith('/api/auth/') && path !== '/api/setup') {
+      // server unreachable — journal the change for the next reconnect
+      const outbox = outboxAll();
+      outbox.push({ m: method, p: path, b: body, t: Date.now() });
+      outboxSave(outbox);
+      throw new ApiError(0, 'Offline — change will sync when the server is back');
+    }
     throw new ApiError(0, 'Cannot reach the OSMP server');
   }
   if (res.status === 401) {
@@ -38,12 +45,72 @@ async function req(path, opts = {}) {
   return data;
 }
 
+// ── offline outbox ───────────────────────────────────────────────────
+// Mutating requests that fail because the server is unreachable are journaled
+// here and replayed in order on reconnect, so plays/likes/edits made offline
+// sync when the server comes back.
+
+const OUTBOX_KEY = 'osmp.outbox';
+const OUTBOX_MAX = 500;
+
+function outboxAll() {
+  try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); }
+  catch { return []; }
+}
+
+export function outboxCount() {
+  return outboxAll().length;
+}
+
+function outboxSave(entries) {
+  localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries.slice(-OUTBOX_MAX)));
+}
+
+export async function outboxFlush() {
+  const entries = outboxAll();
+  if (!entries.length) return 0;
+  const keep = [];
+  let synced = 0;
+  let stop = false;
+  for (const en of entries) {
+    if (stop) { keep.push(en); continue; }
+    try {
+      const res = await fetch(en.p, {
+        method: en.m,
+        headers: { 'Content-Type': 'application/json' },
+        body: en.b === undefined ? undefined : JSON.stringify(en.b),
+        credentials: 'same-origin',
+      });
+      if (res.status === 401) { keep.push(en); stop = true; continue; }  // need re-login
+      if (res.ok) synced++;
+      // other 4xx/5xx: server state moved on — drop the stale change
+    } catch {
+      keep.push(en);  // still offline — keep everything from here on
+      stop = true;
+    }
+  }
+  outboxSave(keep);
+  return synced;
+}
+
 export const api = {
   // meta
   health:        () => req('/api/health'),
   config:        () => req('/api/config'),
-  auth:          (pin) => req('/api/auth', { method: 'POST', body: { pin } }),
+  login:         (username, password) =>
+    req('/api/auth/login', { method: 'POST', body: { username, password } }),
+  setup:         (username, password, name) =>
+    req('/api/setup', { method: 'POST', body: { username, password, name } }),
   logout:        () => req('/api/auth/logout', { method: 'POST' }),
+  me:            () => req('/api/auth/me'),
+
+  // users (admin)
+  users:         () => req('/api/users'),
+  createUser:    (username, password, role = 'user') =>
+    req('/api/users', { method: 'POST', body: { username, password, role } }),
+  deleteUser:    (id) => req(`/api/users/${id}`, { method: 'DELETE' }),
+  setUserPassword: (id, password) =>
+    req(`/api/users/${id}/password`, { method: 'POST', body: { password } }),
 
   // discovery
   search:        (q, limit = 20) => req(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),

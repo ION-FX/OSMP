@@ -106,15 +106,44 @@ export async function mount(root) {
           </select>
         </div>
         <div class="field" style="margin-bottom:16px">
-          <label>Access PIN <span class="faint">(optional — locks the web UI & API)</span></label>
-          <div class="row gap-m" style="max-width:420px">
-            <input class="input" id="st-pin" type="password" placeholder="${serverSettings.access_pin ? '•••• (set)' : 'No PIN set'}" maxlength="32">
-            <button class="btn ghost" id="st-pin-save">Set</button>
-            ${serverSettings.access_pin ? '<button class="btn danger" id="st-pin-clear">Clear</button>' : ''}
+          <label>Saved on this device <span class="faint">(offline audio in this browser)</span></label>
+          <div class="row gap-m" style="align-items:center">
+            <span class="dim" style="font-size:13.5px" id="st-dev-count"></span>
+            <button class="btn ghost" id="st-dev-clear" style="display:none">Clear</button>
           </div>
-          <div class="hint">Changing the PIN signs out all sessions.</div>
+          <div class="hint">"Save to this device" on any track's ⋮ menu keeps it playable with the server down.</div>
         </div>
         <div id="st-server-info" class="dim" style="font-size:13px;line-height:1.9"></div>
+      </div>
+    </section>
+
+    <section class="section" id="st-accounts">
+      <div class="section-head-row"><h2>${icon('user', 19)} &nbsp;Accounts</h2></div>
+      <div class="card" style="cursor:default">
+        <div class="field" style="margin-bottom:16px">
+          <label>My password</label>
+          <div class="row gap-m" style="max-width:460px">
+            <input class="input" id="st-my-pass" type="password" placeholder="New password (min 4 chars)" maxlength="128">
+            <button class="btn ghost" id="st-my-pass-save">Change</button>
+          </div>
+          <div class="hint">You'll be signed out and asked to log in again.</div>
+        </div>
+        <div id="st-users-admin" class="hidden">
+          <div class="section-head-row" style="margin-bottom:10px">
+            <label style="font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-faint);font-weight:700">Users</label>
+          </div>
+          <div id="st-users-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px"></div>
+          <div class="row gap-m" style="flex-wrap:wrap">
+            <input class="input" id="st-new-user" placeholder="Username" maxlength="32" style="max-width:170px" spellcheck="false">
+            <input class="input" id="st-new-pass" type="password" placeholder="Password" maxlength="128" style="max-width:170px">
+            <select class="select" id="st-new-role" style="max-width:130px">
+              <option value="user">Listener</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button class="btn primary" id="st-user-add">${icon('plus', 15)} Add user</button>
+          </div>
+          <div class="hint">Listeners can stream, build playlists and download — only admins manage users, settings and updates.</div>
+        </div>
       </div>
     </section>
 
@@ -225,22 +254,93 @@ export async function mount(root) {
     toastOk(`Stream format: ${fmtSel.value}`);
   };
 
-  root.querySelector('#st-pin-save').onclick = async () => {
-    const pin = root.querySelector('#st-pin').value.trim();
-    if (!pin) { toast('Enter a PIN first'); return; }
+  root.querySelector('#st-pin-save')?.remove();
+
+  // saved-on-this-device
+  {
+    const ids = load('deviceOffline', []);
+    const countEl = root.querySelector('#st-dev-count');
+    countEl.textContent = `${ids.length} track${ids.length === 1 ? '' : 's'} saved offline`;
+    const clearBtn = root.querySelector('#st-dev-clear');
+    if (ids.length) {
+      clearBtn.style.display = '';
+      clearBtn.onclick = async () => {
+        try {
+          if ('caches' in window) await caches.delete('osmp-audio-v1');
+        } catch { /* */ }
+        persist('deviceOffline', []);
+        countEl.textContent = '0 tracks saved offline';
+        clearBtn.style.display = 'none';
+        toastOk('Cleared saved audio from this device');
+      };
+    }
+  }
+
+  // ── accounts ──
+  const me = cfg.user || null;
+  root.querySelector('#st-my-pass-save').onclick = async () => {
+    const v = root.querySelector('#st-my-pass').value;
+    if (!me) { toastErr('Not signed in'); return; }
+    if (v.length < 4) { toast('Password must be at least 4 characters'); return; }
     try {
-      await api.saveSettings({ access_pin: pin });
-      root.querySelector('#st-pin').value = '';
-      toastOk('PIN set — the UI will ask for it on fresh sessions');
-    } catch (e) { toastErr('Failed to set PIN'); }
+      await api.setUserPassword(me.id, v);
+      toastOk('Password changed — signing you out');
+      setTimeout(async () => { await api.logout().catch(() => {}); location.reload(); }, 900);
+    } catch (e) { toastErr(e.detail || 'Change failed'); }
   };
-  root.querySelector('#st-pin-clear')?.addEventListener('click', async () => {
-    try {
-      await api.saveSettings({ access_pin: '' });
-      toastOk('PIN removed');
-      setTimeout(() => location.reload(), 800);
-    } catch (e) { toastErr('Failed'); }
-  });
+
+  if (me && me.role === 'admin') {
+    const adminBox = root.querySelector('#st-users-admin');
+    adminBox.classList.remove('hidden');
+    const listHost = root.querySelector('#st-users-list');
+    const renderUsers = async () => {
+      let users = [];
+      try { users = (await api.users()).users; } catch (e) { return; }
+      listHost.innerHTML = '';
+      users.forEach(u => {
+        const row = document.createElement('div');
+        row.className = 'row gap-m';
+        row.style.cssText = 'align-items:center;padding:9px 12px;background:var(--bg-2);border-radius:var(--r-sm)';
+        row.innerHTML = `
+          <span style="display:flex">${icon('user', 16)}</span>
+          <strong style="font-size:13.5px"></strong>
+          ${u.role === 'admin' ? '<span class="nav-badge beta">admin</span>' : '<span class="faint" style="font-size:12px">listener</span>'}
+          <span class="spacer"></span>
+          <button class="icon-btn sm" title="Reset password">${icon('edit', 15)}</button>
+          ${u.id !== me.id ? `<button class="icon-btn sm" title="Remove user">${icon('trash', 15)}</button>` : '<span class="faint" style="font-size:12px">you</span>'}`;
+        row.querySelector('strong').textContent = u.username;
+        const [pwBtn, delBtn] = row.querySelectorAll('.icon-btn');
+        pwBtn.onclick = async () => {
+          const np = prompt(`New password for ${u.username}:`);
+          if (!np) return;
+          try { await api.setUserPassword(u.id, np); toastOk(`Password reset for ${u.username}`); }
+          catch (e) { toastErr(e.detail || 'Reset failed'); }
+        };
+        if (delBtn && delBtn.tagName === 'BUTTON') {
+          delBtn.onclick = async () => {
+            if (!confirm(`Remove ${u.username}? Their history will be deleted.`)) return;
+            try { await api.deleteUser(u.id); toast(`Removed ${u.username}`, { icon: 'trash' }); renderUsers(); }
+            catch (e) { toastErr(e.detail || 'Remove failed'); }
+          };
+        }
+        listHost.appendChild(row);
+      });
+    };
+    renderUsers();
+    root.querySelector('#st-user-add').onclick = async () => {
+      const un = root.querySelector('#st-new-user').value.trim();
+      const pw = root.querySelector('#st-new-pass').value;
+      const role = root.querySelector('#st-new-role').value;
+      if (!un || pw.length < 4) { toast('Username and a 4+ char password, please'); return; }
+      try {
+        await api.createUser(un, pw, role);
+        root.querySelector('#st-new-user').value = '';
+        root.querySelector('#st-new-pass').value = '';
+        toastOk(`Added ${un}`);
+        renderUsers();
+      } catch (e) { toastErr(e.detail || 'Could not add user'); }
+    };
+  }
 
   // server info
   let libSize = 0, libCount = 0;
@@ -268,6 +368,14 @@ export async function mount(root) {
       : cfgNow.update_mode === 'source' ? ' · source install' : '');
 
   const onAndroid = !!window.OsmpBridge;
+  const isAdmin = (cfgNow.user || {}).role === 'admin';
+  if (!isAdmin && !onAndroid) {
+    // listeners can't manage the server install
+    root.querySelector('#up-check').classList.add('hidden');
+    root.querySelector('#up-ytdlp').classList.add('hidden');
+    root.querySelector('#up-token-field').classList.add('hidden');
+    upBadge.textContent = 'ask an admin';
+  }
   if (onAndroid) {
     // APKs update by installing the new release — hide in-place actions
     root.querySelector('#up-check').classList.add('hidden');

@@ -43,14 +43,36 @@ def main():
                 if m.type in ("error",) else None)
         page.on("pageerror", lambda e: console_errors.append(str(e)))
 
-        # ── boot ──────────────────────────────────────────────
-        page.goto(BASE, wait_until="networkidle", timeout=30000)
-        page.wait_for_selector("#boot-splash.done, #boot-splash:removed", timeout=15000) \
-            if page.locator("#boot-splash").count() else None
-        page.wait_for_selector("#app:not(.hidden)", timeout=15000)
+        # ── boot + login ─────────────────────────────────────
+        page.goto(BASE, wait_until="load", timeout=30000)
+        page.wait_for_selector("#auth-form", state="visible", timeout=15000)
+        check("auth: login gate shown", True)
+        page.fill("#auth-user", "admin")
+        page.fill("#auth-pass", "osmp-admin")
+        page.click("#auth-go")
+        page.wait_for_selector("#app:not(.hidden)", timeout=20000)
         time.sleep(1.2)
         check("boot: app visible", page.is_visible("#app"))
+        check("boot: user chip shows admin",
+              "admin" in (page.text_content("#user-name") or ""))
         shot(page, "01-home")
+
+        # ── accounts: add + remove a user (admin) ────────────
+        page.click("#btn-settings")
+        page.wait_for_selector("#st-accounts", timeout=8000)
+        page.fill("#st-new-user", "listener")
+        page.fill("#st-new-pass", "listen123")
+        page.click("#st-user-add")
+        time.sleep(1.2)
+        ulist = page.text_content("#st-users-list") or ""
+        check("accounts: user added", "listener" in ulist, ulist[:80])
+        # remove them again (their row's trash button) — confirm() fires a dialog
+        page.on("dialog", lambda d: d.accept())
+        page.locator("#st-users-list .row", has_text="listener").locator(".icon-btn").last.click()
+        time.sleep(1.2)
+        ulist = page.text_content("#st-users-list") or ""
+        check("accounts: user removed", "listener" not in ulist, ulist[:80])
+        page.click('a[data-route="home"]')
 
         # ── search & play ─────────────────────────────────────
         page.click('a[data-route="search"]')

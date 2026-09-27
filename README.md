@@ -22,6 +22,9 @@
   stream instantly (server-side proxy with full seeking support).
 - **True offline** — download tracks server-side into your library, or
   on-device in the Android app. Downloads play with the network unplugged.
+- **Accounts & multi-user** — the admin owns the box; invite listeners with
+  their own login and history. Sessions survive restarts; clients (web,
+  Android, Linux) sign in once.
 - **Radio that understands seeds** — give it a song, artist or mood; it walks
   YouTube's own recommendation graph, dedupes, spreads artists, ranks by
   relevance. No API key, no rate limits.
@@ -54,25 +57,59 @@
 | Surface | What it is |
 |---|---|
 | **Browser** | The full web app (installable PWA). Zero build step — hand-written ES modules, no npm anywhere. |
-| **Linux AppImage** | `OSMP-x86_64.AppImage` — a real desktop window (Qt WebEngine) with the entire server, yt-dlp and ffmpeg bundled inside. System tray with transport controls. |
-| **Android APK** | WebView shell around the same UI + a native layer: on-device downloads served through a virtual host (offline playback with zero network), wake lock, media notification with lock-screen controls. |
+| **Linux AppImage** | `OSMP-x86_64.AppImage` — a desktop client (Qt WebEngine) that connects to your server. Can also run the entire server on this machine instead (bundled server, yt-dlp, ffmpeg). System tray with transport controls. |
+| **Android APK** | WebView client + native layer: signs into the server, on-device downloads served through a virtual host (offline playback with zero network), wake lock, media notification with lock-screen controls. |
 
 All three share one codebase for the UI (`webui/`).
 
-## Quick start — server + browser
+## Setup — one server, everyone connects
 
-Requirements: Python ≥ 3.10, nothing else (ffmpeg is auto-detected if present;
-the bundled builds below include it).
+### 1. Install the server (one command)
 
 ```bash
-pip3 install -r server/requirements.txt
-python3 server/run.py --open
+curl -fsSL https://raw.githubusercontent.com/ION-FX/OSMP/main/scripts/install.sh | sudo bash
 ```
 
-That's it — the UI opens at `http://127.0.0.1:8790`. To serve your whole
-network: `python3 server/run.py --host 0.0.0.0`.
+The installer asks **which IP to bind** and **which port** (defaults: your LAN IP
+and `8543`), downloads the latest server bundle, creates a venv, installs a
+`osmp` systemd service, and starts it. No root? It installs into
+`~/.local/share/osmp` with a user-level service instead. Handy flags:
+`--host 0.0.0.0 --port 8790 --no-systemd --uninstall`, and `OSMP_GITHUB_TOKEN=…`
+if the repo is private. Prefer to do it by hand:
 
-Data lives in `~/.local/share/osmp` (override with `--data DIR` or `OSMP_DATA`).
+```bash
+python3 -m venv server/venv && server/venv/bin/pip install -r server/requirements.txt
+server/venv/bin/python server/run.py --host 0.0.0.0 --port 8543
+```
+
+### 2. Create the admin account
+
+Open `http://<server-ip>:<port>` in a browser — the first visit shows a setup
+screen that creates the **admin** account. That's it; the server is locked to
+logins from then on.
+
+### 3. Invite people (optional)
+
+Settings → **Accounts** (admin only) adds listener accounts. Listeners get
+their own play history and can stream, build playlists, import, and download —
+only admins manage users, server settings and updates.
+
+### 4. Connect your devices
+
+- **Browser** — just open the server address; installable as a PWA.
+- **Android** — install the APK, enter the server address + your account.
+- **Linux** — run the AppImage, enter the server address + your account
+  (or tick *"run a server on this computer"* on a desktop machine).
+
+## Offline mode (all clients)
+
+- **Downloads** (server library) live on the server machine and play anywhere
+  the normal way — even when YouTube is unreachable.
+- **Save to this device** (track ⋮ menu in the browser/AppImage client) keeps a
+  copy of the audio inside the client itself: if the server goes down, the UI
+  tells you it's offline and everything you saved keeps playing.
+- Anything you do while offline — plays, likes, playlist edits — is journaled
+  and **syncs automatically** when the server comes back.
 
 ## Linux AppImage
 
@@ -84,10 +121,12 @@ chmod +x OSMP-x86_64.AppImage
 ./OSMP-x86_64.AppImage
 ```
 
-Everything (server, yt-dlp, ffmpeg, Qt) is inside the file. It shares the same
-library directory as the plain server, so downloads follow you.
-Useful flags: `--browser` (serve + open your default browser instead of the
-window), `--port N`, `--data DIR`.
+Everything (server, yt-dlp, ffmpeg, Qt) is inside the file. By default it
+connects to your OSMP server like the phone does; choose *"run a server on
+this computer"* on the first screen to use it standalone. Local mode shares the
+same library directory as the plain server, so downloads follow you.
+Useful flags: `--server URL` (skip the dialog), `--local`, `--browser`
+(serve + open your default browser), `--port N`, `--data DIR`.
 
 > **Note for Ubuntu 23.04+ / distros without `libfuse2`:** AppImages use FUSE
 > to mount themselves. If double-clicking reports a missing `libfuse.so.2`,
@@ -97,7 +136,7 @@ window), `--port N`, `--data DIR`.
 
 ## Android
 
-Download `osmp-android-0.1.0.apk` from Releases (or build it, see below). On first
+Download `osmp-android-<version>.apk` from Releases (or build it, see below). On first
 launch, enter your server address — e.g. `http://192.168.1.20:8790` — and the
 app connects. The download button then saves tracks **on the device**; they
 keep playing in airplane mode via a native request interceptor.
@@ -129,7 +168,7 @@ Everything lives in the Settings view (or `~/.local/share/osmp/osmp.db`):
 | Theme / accent | Aurora Dark, Midnight (OLED), Daylight + 8 accent hues |
 | AI Curator | `base_url`, `api_key`, `model` for any OpenAI-compatible API |
 | Updates | Optional GitHub token (private repos); check / update / yt-dlp refresh |
-| Access PIN | Optional lock for the web UI + API (cookie session) |
+| Accounts | Admin-managed users; listeners get their own history (Settings → Accounts) |
 | Stream format | `auto` / `m4a` (max compatibility) / `opus` (best quality) |
 
 ### Staying up to date

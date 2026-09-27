@@ -188,7 +188,7 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 }
 @keyframes splash-slide { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
 
-/* ——— PIN gate ——— */
+/* ——— auth gate (login / first-run setup) ——— */
 #pin-overlay {
   position: fixed; inset: 0; z-index: 900;
   display: flex; align-items: center; justify-content: center;
@@ -206,7 +206,7 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 .pin-card p { color: var(--text-dim); font-size: 13.5px; }
 .pin-card input {
   background: var(--bg-2); border: 1px solid var(--glass-border); border-radius: var(--r-sm);
-  padding: 12px 14px; text-align: center; font-size: 18px; letter-spacing: .3em;
+  padding: 12px 14px; text-align: left; font-size: 15px; letter-spacing: normal;
 }
 .pin-card input:focus { border-color: var(--accent); outline: none; }
 .pin-error { color: hsl(4 90% 65%); font-size: 13px; animation: shake .4s; }
@@ -214,6 +214,8 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
   0%,100% { transform: translateX(0); } 25% { transform: translateX(-6px); }
   50% { transform: translateX(6px); } 75% { transform: translateX(-3px); }
 }
+#offline-pill.chatty { width: auto; padding: 0 12px; gap: 7px; }
+#offline-pill.chatty span.txt { font-size: 12px; }
 
 /* ——— reduced motion ——— */
 @media (prefers-reduced-motion: reduce) {

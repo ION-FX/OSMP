@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
 import threading
 import time
 import uuid
@@ -16,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import db, llm, radio, update, youtube
+from . import auth, db, llm, radio, update, youtube
 from .config import get_config
 
 log = logging.getLogger("osmp.api")
@@ -26,52 +25,156 @@ CHUNK = 256 * 1024
 MEDIA_TYPES = {".m4a": "audio/mp4", ".mp4": "audio/mp4", ".webm": "audio/webm",
                ".opus": "audio/ogg", ".ogg": "audio/ogg", ".mp3": "audio/mpeg"}
 
-# --------------------------------------------------------------- auth (optional PIN)
+# --------------------------------------------------------------- auth (accounts)
 
-_sessions: set[str] = set()
-_sessions_lock = threading.Lock()
-_AUTH_EXEMPT = {"/api/health", "/api/config", "/api/auth", "/api/auth/logout"}
-
-
-def _pin_set() -> bool:
-    return bool((db.get_setting("access_pin") or "").strip())
+_AUTH_EXEMPT = {"/api/health", "/api/config", "/api/auth/login", "/api/auth/logout",
+                "/api/auth/me", "/api/setup"}
 
 
-def _authorized(session: str | None) -> bool:
-    if not _pin_set():
-        return True
-    with _sessions_lock:
-        return bool(session) and session in _sessions
+class LoginIn(BaseModel):
+    username: str
+    password: str
 
 
-class AuthIn(BaseModel):
-    pin: str
+class SetupIn(BaseModel):
+    username: str
+    password: str
+    name: str | None = None  # optional friendly server name
 
 
-@router.post("/auth")
-def auth(body: AuthIn):
-    expected = (db.get_setting("access_pin") or "").strip()
-    if not expected:
-        return {"ok": True, "auth_required": False}
-    if not secrets.compare_digest(body.pin.strip(), expected):
-        raise HTTPException(401, "Wrong PIN")
-    token = secrets.token_hex(24)
-    with _sessions_lock:
-        _sessions.add(token)
-    resp = JSONResponse({"ok": True, "auth_required": True})
-    resp.set_cookie("osmp_session", token, httponly=True, samesite="lax",
-                    max_age=30 * 24 * 3600)
+class PasswordIn(BaseModel):
+    password: str
+
+
+class UserIn(BaseModel):
+    username: str
+    password: str
+    role: Literal["admin", "user"] = "user"
+
+
+def _token_from(request: Request) -> str | None:
+    bearer = request.headers.get("authorization", "")
+    if bearer.lower().startswith("bearer "):
+        return bearer[7:].strip()
+    return request.cookies.get(auth.COOKIE)
+
+
+def current_user(request: Request) -> dict | None:
+    try:
+        return auth.session_user(_token_from(request))
+    except Exception:  # noqa: BLE001 — auth must never 500
+        return None
+
+
+def require_user(request: Request) -> dict:
+    user = current_user(request)
+    if not user:
+        raise HTTPException(401, "authentication required")
+    return user
+
+
+def require_admin(request: Request) -> dict:
+    user = require_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin account required")
+    return user
+
+
+def _pub_user(u: dict) -> dict:
+    return {"id": u["id"], "name": u["username"], "role": u["role"]}
+
+
+def _session_response(user: dict) -> JSONResponse:
+    """Login/setup answer: cookie for browsers + bearer token for native clients."""
+    token = auth.create_session(user["id"])
+    resp = JSONResponse({"ok": True, "token": token, "user": _pub_user(user)})
+    resp.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax",
+                    max_age=auth.SESSION_TTL, path="/")
     return resp
+
+
+@router.post("/setup")
+def setup(body: SetupIn):
+    """Create the first (admin) account. Refuses once any user exists."""
+    if not auth.setup_required():
+        raise HTTPException(403, "this server already has an admin account")
+    try:
+        user = auth.create_user(body.username, body.password, role="admin")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if (body.name or "").strip():
+        db.set_setting("server_name", body.name.strip()[:60])
+    db.set_setting("access_pin", "")  # PIN auth is retired by accounts
+    return _session_response(user)
+
+
+@router.post("/auth/login")
+def auth_login(body: LoginIn):
+    u = auth.find_user(body.username)
+    if not u or not u["active"] or not auth.verify_password(body.password, u["pwhash"]):
+        raise HTTPException(401, "Wrong username or password")
+    return _session_response(u)
 
 
 @router.post("/auth/logout")
-def logout(request: Request):
-    token = request.cookies.get("osmp_session")
-    with _sessions_lock:
-        _sessions.discard(token or "")
+def auth_logout(request: Request):
+    auth.drop_session(_token_from(request))
     resp = JSONResponse({"ok": True})
-    resp.delete_cookie("osmp_session")
+    resp.delete_cookie(auth.COOKIE, path="/")
     return resp
+
+
+@router.get("/auth/me")
+def auth_me(request: Request):
+    user = require_user(request)
+    return {"user": _pub_user(user)}
+
+
+# --------------------------------------------------------------- user admin
+
+@router.get("/users")
+def users_list(request: Request):
+    require_admin(request)
+    return {"users": [{**u, "pwhash": None} for u in auth.list_users()]}
+
+
+@router.post("/users")
+def users_create(request: Request, body: UserIn):
+    require_admin(request)
+    try:
+        u = auth.create_user(body.username, body.password, role=body.role)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"user": _pub_user(u)}
+
+
+@router.delete("/users/{user_id}")
+def users_delete(request: Request, user_id: int):
+    admin = require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(400, "you cannot delete your own account")
+    try:
+        auth.delete_user(user_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/password")
+def users_password(request: Request, user_id: int, body: PasswordIn):
+    user = require_user(request)
+    if user["role"] != "admin" and user["id"] != user_id:
+        raise HTTPException(403, "you can only change your own password")
+    target = auth.get_user(user_id)
+    if not target:
+        raise HTTPException(404, "no such user")
+    try:
+        auth.set_password(user_id, body.password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if user["role"] != "admin" or user_id == user["id"]:
+        auth.drop_session(_token_from(request))  # re-login after self password change
+    return {"ok": True}
 
 
 # --------------------------------------------------------------- meta
@@ -88,11 +191,15 @@ def client_config(request: Request):
         cinfo = update.current_info()
     except Exception:  # noqa: BLE001 — never break config on update introspection
         cinfo = {}
+    user = current_user(request)
     return {
         "version": __version__,
         "commit": cinfo.get("commit"),
         "update_mode": cinfo.get("mode", "unknown"),
-        "auth_required": _pin_set() and not _authorized(request.cookies.get("osmp_session")),
+        "auth_required": auth.setup_required() or user is None,
+        "setup_required": auth.setup_required(),
+        "server_name": db.get_setting("server_name", "") or "",
+        "user": _pub_user(user) if user else None,
         "llm_configured": llm.is_configured(),
         "ffmpeg": bool(get_config().ffmpeg_path),
     }
@@ -249,8 +356,9 @@ async def _proxy_stream(request: Request, video_id: str, fmt: str, head_only: bo
 
         headers = dict(info.get("headers") or {})
         rng = request.headers.get("range")
-        if rng:
-            headers["Range"] = rng
+        # googlevideo stalls plain full GETs without a Range header — always
+        # send one; a Range-less client gets the 206 rewritten to 200 below
+        headers["Range"] = rng if rng else "bytes=0-"
         try:
             upstream_req = client.build_request("GET", info["url"], headers=headers)
             upstream = await client.send(upstream_req, stream=True)
@@ -278,11 +386,13 @@ async def _proxy_stream(request: Request, video_id: str, fmt: str, head_only: bo
         for h in ("content-range", "content-length"):
             if h in upstream.headers:
                 out_headers[h] = upstream.headers[h]
+        if rng is None:
+            out_headers.pop("content-range", None)  # we asked for the whole file
 
         if head_only:
             await upstream.aclose()
-            return Response(status_code=upstream.status_code, headers=out_headers,
-                            media_type=ctype)
+            status = upstream.status_code if rng else (200 if upstream.status_code == 206 else upstream.status_code)
+            return Response(status_code=status, headers=out_headers, media_type=ctype)
 
         async def body():
             try:
@@ -293,7 +403,8 @@ async def _proxy_stream(request: Request, video_id: str, fmt: str, head_only: bo
             finally:
                 await upstream.aclose()
 
-        return StreamingResponse(body(), status_code=upstream.status_code,
+        return StreamingResponse(body(),
+                                 status_code=upstream.status_code if rng else 200,
                                  headers=out_headers, media_type=ctype)
     raise HTTPException(last_status if last_status < 500 else 502, "stream failed")
 
@@ -630,7 +741,8 @@ class LLMPromptIn(BaseModel):
 # --------------------------------------------------------------- self-update
 
 @router.post("/update/check")
-def update_check():
+def update_check(request: Request):
+    require_admin(request)
     try:
         return update.check()
     except update.UpdateError as exc:
@@ -642,7 +754,8 @@ class UpdateApplyIn(BaseModel):
 
 
 @router.post("/update/apply")
-def update_apply(body: UpdateApplyIn):
+def update_apply(request: Request, body: UpdateApplyIn):
+    require_admin(request)
     try:
         return update.start_job(body.kind)
     except update.UpdateError as exc:
@@ -690,17 +803,14 @@ def settings_get():
 
 
 @router.put("/settings")
-def settings_put(body: dict):
+def settings_put(request: Request, body: dict):
+    require_admin(request)
     changed = []
     for k, v in body.items():
         if k not in _ALLOWED_SETTINGS:
             continue
         if k in _SENSITIVE and v == "***set***":
             continue  # masked value echoed back — leave as is
-        if k == "access_pin":
-            v = str(v or "").strip()
-            with _sessions_lock:
-                _sessions.clear()
         db.set_setting(k, v)
         changed.append(k)
     return {"ok": True, "changed": changed}
@@ -711,14 +821,17 @@ class HistoryIn(BaseModel):
 
 
 @router.post("/history")
-def history_record(body: HistoryIn):
-    db.record_play(body.track_id)
+def history_record(request: Request, body: HistoryIn):
+    user = require_user(request)
+    db.record_play(body.track_id, user_id=str(user["id"]))
     return {"ok": True}
 
 
 @router.get("/home")
-def home():
-    recent = [_track_out(t) for t in db.recent_history(12)]
+def home(request: Request):
+    user = current_user(request)
+    uid = str(user["id"]) if user else "local"
+    recent = [_track_out(t) for t in db.recent_history(12, user_id=uid)]
     offline = [_track_out(t) for t in db.list_tracks(offline_only=True, limit=8)]
     playlists = db.list_playlists()[:8]
     stats = {

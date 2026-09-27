@@ -1,0 +1,25 @@
+# OSMP server systemd unit — installed by scripts/install.sh
+# Data lives in /var/lib/osmp, config in /etc/osmp.
+
+[Unit]
+Description=OSMP music server (self-hosted)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__OSMP_USER__
+Group=__OSMP_USER__
+WorkingDirectory=__OSMP_HOME__/server
+ExecStart=__OSMP_PY__ run.py --host __OSMP_HOST__ --port __OSMP_PORT__ --data __OSMP_DATA__
+Restart=on-failure
+RestartSec=3
+
+# hardening (safe defaults — yt-dlp needs network + tmp)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=/var/lib/osmp
+
+[Install]
+WantedBy=multi-user.target
