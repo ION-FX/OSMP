@@ -84,11 +84,38 @@ fi
 echo "→ Installing OSMP $VERSION"
 
 ASSET="osmp-server-${VERSION#v}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
-AUTH=()
-[[ -n "${OSMP_GITHUB_TOKEN:-}" ]] && AUTH=(-H "Authorization: token $OSMP_GITHUB_TOKEN")
 
-# ── system deps (best effort, root only) ─────────────────────────────
+# ── download + unpack ────────────────────────────────────────────────
+echo "→ Downloading $ASSET"
+TMP=$(mktemp -d)
+AUTHH=()
+[[ -n "${OSMP_GITHUB_TOKEN:-}" ]] && AUTHH=(-H "Authorization: token $OSMP_GITHUB_TOKEN")
+# private repos: resolve the asset id, then fetch via the API's octet-stream
+# endpoint — the browser_download_url redirects to S3, which rejects requests
+# that still carry the Authorization header, so strip it after the redirect
+ASSET_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
+if [[ -n "${OSMP_GITHUB_TOKEN:-}" ]]; then
+  ASSET_ID=$(gh "/releases/tags/$VERSION" | python3 -c "
+import json, sys
+for a in json.load(sys.stdin).get('assets', []):
+    if a['name'] == '$ASSET':
+        print(a['id']); break" 2>/dev/null || true)
+  if [[ -n "$ASSET_ID" ]]; then
+    LOC=$(curl -s -H "Authorization: token $OSMP_GITHUB_TOKEN" \
+      -H "Accept: application/octet-stream" \
+      -o /dev/null -w '%{redirect_url}' \
+      "https://api.github.com/repos/${REPO}/releases/assets/$ASSET_ID")
+    if [[ -n "$LOC" ]]; then
+      ASSET_URL="$LOC"; AUTHH=()
+    else
+      ASSET_URL="https://api.github.com/repos/${REPO}/releases/assets/$ASSET_ID"
+    fi
+  fi
+fi
+if ! curl -fsSL "${AUTHH[@]}" -o "$TMP/$ASSET" "$ASSET_URL"; then
+  echo "!! Download failed (private repo? set OSMP_GITHUB_TOKEN)" >&2
+  exit 1
+fi
 if [[ $IS_ROOT -eq 1 ]] && command -v apt-get >/dev/null 2>&1; then
   echo "→ Checking system packages (python3-venv, ffmpeg, curl)…"
   NEEDS=()
@@ -119,29 +146,22 @@ PORT_ARG=${PORT_ARG:-8543}
 [[ -n "$DIR_ARG" ]] && OSMP_HOME="$DIR_ARG"
 
 # ── download + unpack ────────────────────────────────────────────────
-echo "→ Downloading $ASSET"
-TMP=$(mktemp -d)
-if ! curl -fsSL "${AUTH[@]}" -o "$TMP/$ASSET" "$URL"; then
-  echo "!! Download failed (private repo? pass -H 'Authorization: token …' to curl and set OSMP_GITHUB_TOKEN)" >&2
-  exit 1
-fi
 mkdir -p "$OSMP_HOME" "$OSMP_DATA"
-tar -xzf "$TMP/$ASSET" -C "$OSMP_HOME"
+tar -xzf "$TMP/$ASSET" -C "$OSMP_HOME" --strip-components=1
 rm -rf "$TMP"
 
 # ── venv + deps (falls back to --user pip on minimal boxes) ──────────
 echo "→ Installing Python dependencies…"
+PYBIN=""
 if python3 -m venv "$OSMP_HOME/server/venv" 2>/dev/null; then
-  PIP=("$OSMP_HOME/server/venv/bin/pip")
-  "$OSMP_HOME/server/venv/bin/python" -c 'import fastapi' 2>/dev/null || \
-    "${PIP[@]}" install -q --upgrade pip || true
   PYBIN="$OSMP_HOME/server/venv/bin/python"
+  "$PYBIN" -m pip install -q --upgrade pip 2>/dev/null || true
+  "$PYBIN" -m pip install -q -r "$OSMP_HOME/server/requirements.txt"
 else
   echo "  (venv unavailable — installing with pip --user)"
-  PIP=(python3 -m pip install --user --break-system-packages)
   PYBIN="python3"
+  python3 -m pip install -q --user --break-system-packages -r "$OSMP_HOME/server/requirements.txt"
 fi
-"${PIP[@]}" install -q -r "$OSMP_HOME/server/requirements.txt"
 
 # ── service (system unit as root, user unit otherwise) ───────────────
 RUN_USER="${SUDO_USER:-root}"

@@ -189,7 +189,8 @@ def main() -> int:
 
     client_url = None      # what we load in the webview
     session_token = None
-    if "--local" in args:
+    cfg = load_cfg()
+    if "--local" in args or (smoke and not flag("--server")):
         cfg = {"mode": "local"}
     elif flag("--server"):
         base = flag("--server").rstrip('/')
@@ -220,6 +221,10 @@ def main() -> int:
         client_url = f"http://127.0.0.1:{proxy_port}"
         session_token = cfg.get("token")
 
+    if not wait_ready(client_url):
+        print("OSMP server did not become ready", file=sys.stderr)
+        return 1
+
     if browser_mode:
         if not wait_ready(client_url):
             print("OSMP server failed to start", file=sys.stderr)
@@ -236,7 +241,6 @@ def main() -> int:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
     from PySide6.QtCore import QUrl, QTimer
-    from PySide6.QtNetwork import QNetworkCookie
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
 
@@ -248,18 +252,18 @@ def main() -> int:
         qapp.setWindowIcon(QIcon(str(icon_path)))
 
     from PySide6.QtWebEngineWidgets import QWebEngineView
-    from PySide6.QtWebEngineCore import QWebEngineProfile
-
-    if session_token:
-        cookie = QNetworkCookie(b"osmp_session", session_token.encode())
-        cookie.setPath("/")
-        QWebEngineProfile.defaultProfile().cookieStore().setCookie(cookie, QUrl(client_url))
 
     win = QMainWindow()
     win.setWindowTitle("OSMP")
     win.resize(1280, 860)
     view = QWebEngineView(win)
     win.setCentralWidget(view)
+
+    if session_token:
+        from PySide6.QtNetwork import QNetworkCookie
+        cookie = QNetworkCookie(b"osmp_session", session_token.encode())
+        cookie.setPath("/")
+        view.page().profile().cookieStore().setCookie(cookie, QUrl(client_url))
 
     state = {"loaded": False, "failed": False}
 
