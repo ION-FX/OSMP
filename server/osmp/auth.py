@@ -180,6 +180,12 @@ def drop_session(token: str | None, cfg: Config | None = None) -> None:
             conn.execute("DELETE FROM sessions WHERE token=?", (token,))
 
 
+def drop_user_sessions(user_id: int, cfg: Config | None = None) -> None:
+    """Sign a user out everywhere (used after password resets)."""
+    with _conn(cfg) as conn:
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+
+
 def purge_expired(cfg: Config | None = None) -> None:
     with _conn(cfg) as conn:
         conn.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))

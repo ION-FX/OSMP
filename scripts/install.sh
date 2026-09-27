@@ -226,6 +226,7 @@ cat <<EOF
   1. Open http://$HOST_ARG:$PORT_ARG in your browser
   2. Create the admin account (first visit only)
   3. Settings → Accounts to invite listeners
+     (locked out later?  run.py --reset-password <user> on this box)
   4. Install the Android APK / Linux AppImage and point them here
 $RUN_CMD
 ────────────────────────────────────────────────────────────

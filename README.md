@@ -171,6 +171,21 @@ Everything lives in the Settings view (or `~/.local/share/osmp/osmp.db`):
 | Accounts | Admin-managed users; listeners get their own history (Settings → Accounts) |
 | Stream format | `auto` / `m4a` (max compatibility) / `opus` (best quality) |
 
+### Account recovery
+
+Accounts live on the server, so its shell always wins. From the machine
+running OSMP (safe while the server is up):
+
+```bash
+python3 server/run.py --list-users                     # what accounts exist
+python3 server/run.py --reset-password admin           # set a new password
+python3 server/run.py --create-admin                   # only before first setup
+```
+
+With the systemd install, use the venv python:
+`/opt/osmp/server/venv/bin/python /opt/osmp/server/run.py --reset-password admin`
+(rootless install: `~/.local/share/osmp/server/venv/bin/python …`).
+
 ### Staying up to date
 
 Settings → **Updates** → *Check for updates* → *Update now*. The server
