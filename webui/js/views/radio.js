@@ -9,6 +9,18 @@ import { newPlaylistDialog } from '../actions.js';
 
 const PRESETS = ['lofi hip hop', 'synthwave', 'jazz piano', '90s hip hop', 'ambient sleep', 'indie folk'];
 
+// seeds the "Surprise me" shuffle picks from — moods, scenes and decades
+const SURPRISE = [
+  'lofi hip hop', 'synthwave night drive', 'jazz piano evening', '90s hip hop',
+  'ambient sleep rain', 'indie folk acoustic', 'french cafe jazz', 'desert blues',
+  'city pop 1984', 'post punk 2009', 'shoegaze essentials', 'afrobeats summer',
+  'bossa nova morning', 'drum and bass liquid', 'trip hop nocturnal',
+  'baroque classical focus', 'gospel choir energy', 'reggae dub roots',
+  'dark techno warehouse', 'vaporgrid mallsoft', 'celtic instrumentals',
+  'movie scores epics', 'salsa dura 70s', 'k-pop girl group hits',
+  '70s funk groove', '80s synth pop gems', '2000s pop punk', '2010s indie dance',
+];
+
 export async function mount(root, params) {
   root.innerHTML = `
     <div class="view-head"><h1>${icon('radio', 26)} &nbsp;Radio</h1></div>
@@ -29,6 +41,7 @@ export async function mount(root, params) {
           <option value="60">60 tracks</option>
         </select>
         <button id="rd-go" class="btn primary lg">${icon('zap', 17)} Generate</button>
+        <button id="rd-surprise" class="btn ghost lg" title="Pick a seed at random and go">${icon('sparkles', 17)} Surprise me</button>
       </div>
       <div class="chip-row" style="margin-top:16px" id="rd-presets"></div>
       <div id="rd-history-chips" class="chip-row" style="margin-top:10px"></div>
@@ -98,6 +111,12 @@ export async function mount(root, params) {
 
   goBtn.onclick = () => generate(seedInput.value);
   seedInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') generate(seedInput.value); });
+  root.querySelector('#rd-surprise').onclick = () => {
+    const pick = SURPRISE[Math.floor(Math.random() * SURPRISE.length)];
+    seedInput.value = pick;
+    toast(`Rolled “${pick}” 🎲`, { icon: 'sparkles', timeout: 3000 });
+    generate(pick);
+  };
 
   async function llmCurate() {
     const prompt = root.querySelector('#rd-prompt').value.trim();
@@ -208,7 +227,7 @@ function renderResult(host, tracks, { title, subtitle, kind, defaultName }) {
   host.querySelector('#rr-play').onclick = () =>
     import('../player.js').then(p => p.playTracks(tracks, 0));
   host.querySelector('#rr-shuffle').onclick = () =>
-    import('../player.js').then(p => p.playTracks(tracks, 0, { shuffle: true }));
+    import('../player.js').then(p => p.playTracks(tracks, 0, { shuffle: true, random: true }));
   host.querySelector('#rr-queue').onclick = () =>
     import('../player.js').then(p => { tracks.forEach(t => p.enqueue(t)); toast(`Queued ${tracks.length} tracks`, { icon: 'queue' }); });
   host.querySelector('#rr-save').onclick = async () => {

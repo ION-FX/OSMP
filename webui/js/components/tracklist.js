@@ -76,8 +76,13 @@ export function renderTracklist(host, tracks, opts = {}) {
         <button class="icon-btn sm act-more act-extra" title="More"></button>
       </span>`;
     row.querySelector('.tl-title').textContent = t.title || t.id;
-    row.querySelector('.tl-artist').textContent = t.artist || '';
-    row.querySelector('.tl-album').textContent = t.artist || '—';
+    if (opts.albumAsPlays) {
+      row.querySelector('.tl-artist').textContent = t.artist || '';
+      row.querySelector('.tl-album').textContent = `${t.play_count || 0}×`;
+    } else {
+      bindArtistLink(row.querySelector('.tl-artist'), t.artist);
+      bindArtistLink(row.querySelector('.tl-album'), t.artist);
+    }
     if (isCur) row.classList.add('playing');
 
     // actions
@@ -126,6 +131,19 @@ export function renderTracklist(host, tracks, opts = {}) {
 }
 
 // ── drag reorder ─────────────────────────────────────────────────────
+
+// Artist names open the artist page; album cells under `albumAsPlays`
+// show play counts instead and stay inert.
+function bindArtistLink(el, artist) {
+  if (!el || !artist) { if (el) el.textContent = artist || ''; return; }
+  el.textContent = artist;
+  el.classList.add('artist-link');
+  el.title = `Open ${artist}`;
+  el.onclick = (e) => {
+    e.stopPropagation();
+    location.hash = `#/artist/${encodeURIComponent(artist)}`;
+  };
+}
 
 let dragEl = null;
 

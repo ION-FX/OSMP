@@ -245,3 +245,85 @@
 @media (min-width: 641px) {
   .mobile-only { display: none; }
 }
+
+/* ── lyrics overlay ─────────────────────────────────────────────── */
+#lyrics-overlay {
+  position: fixed; inset: 0; z-index: 320;
+  background: var(--bg-0);
+  display: flex; flex-direction: column;
+  animation: np-in .42s var(--ease) both;
+  overflow: hidden;
+}
+#ly-ambient {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(85% 65% at 50% 8%, hsl(var(--amb-h, var(--accent-h)) 85% 48% / calc(var(--amb-a, .2) * 1.5)), transparent 65%),
+    radial-gradient(70% 55% at 15% 95%, hsl(calc(var(--amb-h2, var(--accent-h)) + 70) 85% 50% / var(--amb-a, .2)), transparent 60%);
+  transition: background .9s var(--ease);
+}
+.ly-head {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 18px;
+}
+.ly-head-meta { flex: 1; min-width: 0; text-align: center; }
+.ly-title {
+  font-weight: 800; font-size: 15px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ly-artist {
+  font-size: 12.5px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ly-scroll {
+  position: relative; z-index: 1; flex: 1; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.ly-scroll::-webkit-scrollbar { display: none; }
+.ly-col {
+  position: relative;  /* offsetTop anchor for the follow loop */
+  max-width: 660px; margin: 0 auto;
+  padding: 36vh 26px 46vh;
+  display: flex; flex-direction: column; gap: 15px;
+}
+.ly-line {
+  margin: 0; font-size: 21px; font-weight: 700; line-height: 1.42;
+  color: var(--text-dim); opacity: .48; cursor: pointer;
+  transition: color .28s var(--ease), opacity .28s var(--ease), transform .28s var(--ease);
+}
+.ly-line:hover { opacity: .85; }
+.ly-line.past { opacity: .58; }
+.ly-line.active {
+  color: var(--text); opacity: 1;
+  transform: scale(1.04); transform-origin: left center;
+}
+.ly-scroll.plain .ly-line {
+  font-size: 16.5px; font-weight: 600; opacity: .8;
+  cursor: default; transform: none;
+}
+.ly-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding-top: 34vh; color: var(--text-dim); font-size: 14px;
+}
+.ly-loading .spin { animation: spin 1s linear infinite; display: flex; }
+.ly-empty { text-align: center; padding-top: 26vh; color: var(--text-dim); }
+.ly-empty h3 { margin: 14px 0 6px; color: var(--text); }
+.ly-empty p { font-size: 13.5px; max-width: 430px; margin: 0 auto 18px; }
+.ly-empty-ico { color: var(--text-faint); }
+
+@media (max-width: 640px) {
+  .ly-col { padding: 28vh 20px 40vh; }
+  .ly-line { font-size: 18px; }
+}
+
+/* ── now-playing visualizer ─────────────────────────────────────── */
+.np-viz {
+  width: min(440px, 64vw);
+  height: 96px;
+  display: block;
+}
+@media (max-width: 640px) { .np-viz { width: 82vw; height: 72px; } }
+
+.speed-chip { font-family: var(--mono); font-size: 12px; padding: 4px 10px; }
+.speed-chip.on { color: var(--accent-bright); border-color: var(--accent); }

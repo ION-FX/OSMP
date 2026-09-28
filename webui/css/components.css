@@ -413,3 +413,119 @@ html[data-perf="low"] .imp-foot, html[data-motion="off"] .imp-foot { background:
   .imp-list .tl-head, .imp-list .tl-row { grid-template-columns: 26px minmax(0, 1fr) 54px; }
   .imp-foot { bottom: 4px; padding: 10px 12px; }
 }
+
+/* ── stats view ─────────────────────────────────────────────────── */
+.stat-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+.stat-card {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--bg-2); border: 1px solid var(--bg-3, rgba(128, 150, 180, .12));
+  border-radius: 16px; padding: 18px 20px;
+}
+.stat-ico {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; border-radius: 14px; flex-shrink: 0;
+  background: var(--accent-soft); color: var(--accent-bright);
+}
+.stat-value { font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+.stat-label { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.stat-sub { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+
+.chart-card { padding: 18px 14px 8px; }
+.chart-svg { width: 100%; height: auto; display: block; }
+.chart-bar { fill: var(--accent); opacity: .55; transition: opacity .2s var(--ease); }
+.chart-bar:hover { opacity: 1; }
+.chart-bar.today { fill: var(--accent-bright); opacity: 1; }
+.chart-grid { stroke: var(--text-faint); stroke-opacity: .25; stroke-dasharray: 3 4; }
+.chart-ttext { fill: var(--text-faint); font-size: 10px; font-family: var(--mono); }
+
+.stats-skel { display: flex; flex-direction: column; gap: 18px; padding: 30px 0; }
+
+.rank-row {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  padding: 10px 12px; border: 0; background: none; color: var(--text);
+  border-radius: 12px; cursor: pointer; text-align: left;
+  font: inherit; transition: background .18s var(--ease);
+}
+.rank-row:hover { background: var(--bg-3, rgba(128, 150, 180, .09)); }
+.rank-num {
+  width: 22px; text-align: center; flex-shrink: 0;
+  font-family: var(--mono); font-size: 12px; color: var(--text-faint);
+}
+.rank-art {
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  font-size: 18px; font-weight: 800; color: #fff;
+  background: var(--grad);
+}
+.rank-cover { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+.rank-name { font-size: 14px; font-weight: 700; }
+.rank-sub { font-size: 12px; color: var(--text-dim); margin: 1px 0 5px; }
+.rank-bar-wrap {
+  display: block; height: 4px; border-radius: 2px;
+  background: var(--bg-3, rgba(128, 150, 180, .14)); overflow: hidden;
+}
+.rank-bar { display: block; height: 100%; border-radius: 2px; background: var(--grad); }
+.rank-meta { flex-shrink: 0; font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+.rank-ico { flex-shrink: 0; color: var(--text-faint); display: flex; }
+.rank-row:hover .rank-ico { color: var(--accent-bright); }
+
+.foryou-initial { font-size: 42px; font-weight: 800; color: rgba(255, 255, 255, .9); }
+
+/* ── equalizer ──────────────────────────────────────────────────── */
+.eq-bands {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px 26px; max-width: 720px;
+}
+.eq-band { display: flex; flex-direction: column; gap: 7px; }
+.eq-band-top { display: flex; justify-content: space-between; align-items: baseline; }
+.eq-band-top label { font-size: 13px; font-weight: 700; }
+.eq-band-db { font-size: 12px; color: var(--accent-bright); font-family: var(--mono); }
+.eq-band input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.eq-band-ends {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: var(--text-faint); font-family: var(--mono);
+}
+
+/* ── artist links / artist view ─────────────────────────────────── */
+.artist-link { cursor: pointer; }
+.artist-link:hover { color: var(--accent-bright); text-decoration: underline; }
+#pb-artist, #np-artist { cursor: pointer; }
+#pb-artist:hover, #np-artist:hover { color: var(--accent-bright); }
+.detail-cover.round { border-radius: 50%; }
+
+/* ── keyboard help ──────────────────────────────────────────────── */
+.kb-list { display: flex; flex-direction: column; gap: 4px; }
+.kb-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 7px 10px; border-radius: 10px;
+}
+.kb-row:nth-child(odd) { background: var(--bg-2); }
+.kb-keys { display: flex; gap: 5px; min-width: 132px; flex-shrink: 0; }
+.kb-what { font-size: 13.5px; color: var(--text-dim); }
+kbd {
+  font-family: var(--mono); font-size: 11.5px;
+  padding: 3px 8px; border-radius: 6px;
+  background: var(--bg-3, rgba(128, 150, 180, .16));
+  border: 1px solid var(--text-faint);
+  border-bottom-width: 2.5px; color: var(--text);
+}
+
+.artist-chip { text-decoration: none; }
+.artist-chip-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--grad); display: inline-block; flex-shrink: 0;
+}
+
+/* ── small screens: stats / artist / lyrics ─────────────────────── */
+@media (max-width: 640px) {
+  .stat-card { padding: 13px 15px; gap: 12px; }
+  .stat-ico { width: 38px; height: 38px; border-radius: 11px; }
+  .stat-value { font-size: 19px; }
+  .rank-meta { display: none; }
+  .rank-row { gap: 10px; }
+  .eq-bands { grid-template-columns: 1fr; gap: 14px; }
+  .chart-card { padding: 12px 6px 4px; }
+}

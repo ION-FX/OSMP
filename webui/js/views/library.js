@@ -25,6 +25,14 @@ export async function mount(root) {
       <div class="card-grid" id="lb-playlists"></div>
     </section>
 
+    <section class="section" id="lb-artists-sec">
+      <div class="section-head-row">
+        <h2>Artists</h2>
+        <span class="faint" id="lb-ar-count" style="font-size:12.5px"></span>
+      </div>
+      <div class="chip-row" id="lb-artists" style="gap:9px"></div>
+    </section>
+
     <section class="section">
       <div class="section-head-row">
         <h2>Downloads</h2>
@@ -41,7 +49,41 @@ export async function mount(root) {
 
   if (bridge()?.isDownloaded) root.querySelector('#lb-native-note').classList.remove('hidden');
 
-  await Promise.all([renderPlaylists(), renderDownloads()]);
+  await Promise.all([renderPlaylists(), renderDownloads(), renderArtists()]);
+}
+
+async function renderArtists() {
+  const host = document.getElementById('lb-artists');
+  const countEl = document.getElementById('lb-ar-count');
+  let artists = [];
+  try {
+    artists = (await api.artists()).artists;
+  } catch { /* offline — keep the section empty */
+  }
+  countEl.textContent = artists.length ? `${artists.length} in your library` : '';
+  if (!artists.length) {
+    document.getElementById('lb-artists-sec').style.display = 'none';
+    return;
+  }
+  host.innerHTML = '';
+  artists.slice(0, 24).forEach(a => {
+    const chip = document.createElement('a');
+    chip.className = 'chip artist-chip';
+    chip.href = `#/artist/${encodeURIComponent(a.artist)}`;
+    chip.innerHTML = `<span class="artist-chip-dot" aria-hidden="true"></span>
+      <span class="ellipsis" style="max-width:200px;display:inline-block"></span>
+      <span class="faint" style="font-size:11px">${a.tracks}</span>`;
+    chip.querySelector('.ellipsis').textContent = a.artist;
+    chip.title = `${a.artist} — ${a.tracks} tracks · ${a.plays} plays`;
+    host.appendChild(chip);
+  });
+  if (artists.length > 24) {
+    const more = document.createElement('span');
+    more.className = 'faint';
+    more.style.cssText = 'font-size:12px;align-self:center';
+    more.textContent = `+${artists.length - 24} more`;
+    host.appendChild(more);
+  }
 }
 
 async function renderPlaylists() {

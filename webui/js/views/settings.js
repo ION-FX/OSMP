@@ -5,7 +5,9 @@ import { get, set, load, persist } from '../store.js';
 import { icon } from '../components/icons.js';
 import { toast, toastOk, toastErr } from '../components/toast.js';
 import { THEMES, ACCENTS, applyTheme, applyAccent, applyMotion } from '../theme.js';
-import { refreshPlaylistsDeep } from '../actions.js';
+import { refreshPlaylistsDeep, refreshPlaylists } from '../actions.js';
+import { getEq, setBand, applyPreset, PRESETS, resetEq, toggleBypass, isBypassed } from '../eq.js';
+import { confirmDialog } from '../components/dialog.js';
 
 export async function mount(root) {
   let serverSettings = {};
@@ -64,6 +66,41 @@ export async function mount(root) {
           <button class="btn ghost" id="st-llm-test">Test connection</button>
         </div>
         <div id="st-llm-result" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head-row"><h2>${icon('sliders', 19)} &nbsp;Sound</h2></div>
+      <div class="card" style="cursor:default" id="st-eq-card">
+        <div class="field" style="margin-bottom:18px">
+          <label>Equalizer preset</label>
+          <div class="chip-row" id="st-eq-presets"></div>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label class="row gap-m" style="cursor:pointer">
+            <input type="checkbox" id="st-eq-bypass" style="width:16px;height:16px;accent-color:var(--accent)">
+            <span>Equalizer on</span>
+          </label>
+        </div>
+        <div class="eq-bands" id="st-eq-bands"></div>
+        <div class="hint" id="st-eq-hint">Applies live while music plays — changes are saved for this device.</div>
+      </div>
+    </section>
+
+    <section class="section" id="st-backup-sec">
+      <div class="section-head-row"><h2>${icon('database', 19)} &nbsp;Backup &amp; restore</h2></div>
+      <div class="card" style="cursor:default">
+        <p class="dim" style="font-size:13px;margin-bottom:14px">
+          One JSON file with your playlists, track metadata and appearance settings.
+          Accounts, API keys and downloads stay on this server — the backup is safe to
+          import anywhere.
+        </p>
+        <div class="row gap-m" style="flex-wrap:wrap">
+          <button class="btn primary" id="st-backup-export">${icon('download', 15)} Export library</button>
+          <button class="btn ghost" id="st-backup-import">${icon('database', 15)} Import backup…</button>
+          <input type="file" id="st-backup-file" accept="application/json,.json" class="hidden">
+        </div>
+        <div id="st-backup-result" style="margin-top:12px;font-size:13px"></div>
       </div>
     </section>
 
@@ -354,6 +391,126 @@ export async function mount(root) {
     <div>${icon('download', 14)} Library: ${libCount} tracks offline · ${fmtBytes(libSize)} on disk</div>
     <div>${icon('cloud-off', 14)} Playback offline: downloads play with no network at all</div>
     ${window.OsmpBridge ? `<div>${icon('disc', 14)} Running inside the OSMP Android app</div>` : ''}`;
+
+  // ── equalizer ─────────────────────────────────────────────────────
+  {
+    const eqCard = root.querySelector('#st-eq-card');
+    if (!getEq().supported) {
+      eqCard.innerHTML = `
+        <p class="dim" style="font-size:13px">This browser doesn't expose Web Audio,
+        so the equalizer isn't available here.</p>`;
+    } else {
+      const presetsHost = root.querySelector('#st-eq-presets');
+      const bandsHost = root.querySelector('#st-eq-bands');
+      const bypassBox = root.querySelector('#st-eq-bypass');
+      bypassBox.checked = !isBypassed();
+      bypassBox.onchange = () => toggleBypass(!bypassBox.checked);
+      const paint = () => {
+        const eq = getEq();
+        presetsHost.innerHTML = '';
+        [...Object.keys(PRESETS), ...(eq.preset === 'Custom' ? ['Custom'] : [])].forEach(name => {
+          const c = document.createElement('button');
+          c.className = `chip${name === eq.preset ? ' on' : ''}`;
+          c.textContent = name;
+          if (name === 'Custom') {
+            c.title = 'Your current slider positions';
+            c.onclick = () => { /* already custom — nothing to reapply */ };
+          } else {
+            c.onclick = () => { applyPreset(name); paint(); };
+          }
+          presetsHost.appendChild(c);
+        });
+        bandsHost.innerHTML = '';
+        eq.bands.forEach(b => {
+          const row = document.createElement('div');
+          row.className = 'eq-band';
+          row.innerHTML = `
+            <div class="eq-band-top">
+              <label>${escapeHtml(b.label)}</label>
+              <span class="eq-band-db mono" data-db="${b.id}">${b.db > 0 ? '+' : ''}${b.db.toFixed(1)}</span>
+            </div>
+            <input type="range" min="-12" max="12" step="0.5" value="${b.db}"
+                   data-band="${b.id}" aria-label="${escapeHtml(b.label)} gain">
+            <div class="eq-band-ends"><span>-12</span><span>0</span><span>+12</span></div>`;
+          const slider = row.querySelector('input');
+          slider.addEventListener('input', () => {
+            setBand(b.id, parseFloat(slider.value));
+            row.querySelector('.eq-band-db').textContent =
+              `${slider.value > 0 ? '+' : ''}${(+slider.value).toFixed(1)}`;
+          });
+          slider.addEventListener('change', paint);  // re-chip presets on release
+          bandsHost.appendChild(row);
+        });
+      };
+      paint();
+    }
+  }
+
+  // ── backup & restore (admin) ──────────────────────────────────────
+  {
+    const sec = root.querySelector('#st-backup-sec');
+    if ((cfg.user || {}).role !== 'admin') {
+      sec.remove();
+    } else {
+      const result = root.querySelector('#st-backup-result');
+      root.querySelector('#st-backup-export').onclick = async () => {
+        result.textContent = 'Preparing backup…';
+        try {
+          const res = await fetch('/api/backup', { credentials: 'same-origin' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `osmp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+          result.textContent = '';
+          toastOk('Backup downloaded');
+        } catch (e) {
+          result.textContent = '';
+          toastErr(e.message || 'Export failed');
+        }
+      };
+      const fileIn = root.querySelector('#st-backup-file');
+      root.querySelector('#st-backup-import').onclick = () => fileIn.click();
+      fileIn.onchange = async () => {
+        const file = fileIn.files && fileIn.files[0];
+        fileIn.value = '';
+        if (!file) return;
+        let data;
+        try {
+          data = JSON.parse(await file.text());
+        } catch {
+          toastErr('That file isn’t valid JSON');
+          return;
+        }
+        if (data.format && data.format !== 'osmp-backup') {
+          toastErr('Not an OSMP backup file');
+          return;
+        }
+        const nPl = (data.playlists || []).length;
+        const nTr = (data.tracks || []).length;
+        const ok = await confirmDialog({
+          title: 'Import backup?',
+          message: `${nPl} playlist${nPl === 1 ? '' : 's'} · ${nTr} tracks. Playlists with the same name are merged — nothing is deleted.`,
+          confirmLabel: 'Import',
+        });
+        if (!ok) return;
+        result.textContent = 'Importing…';
+        try {
+          const r = await api.backupRestore(data);
+          result.textContent = `Created ${r.playlists_created} · merged ${r.playlists_merged} · unchanged ${r.playlists_unchanged}`;
+          await refreshPlaylists();
+          toastOk('Backup imported');
+        } catch (e) {
+          result.textContent = '';
+          toastErr(e.detail || 'Import failed');
+        }
+      };
+    }
+  }
 
   // ── updates ──────────────────────────────────────────────────────
   const upNow = root.querySelector('#up-now');

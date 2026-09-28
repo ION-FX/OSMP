@@ -8,6 +8,8 @@ import { hydrateIcons } from './components/icons.js';
 import { toast, toastOk, toastErr } from './components/toast.js';
 import { initPlayer } from './player.js';
 import { initActions, refreshPlaylists, refreshPlaylistsDeep } from './actions.js';
+import { initLyrics } from './lyrics.js';
+import { initVisualizer } from './visualizer.js';
 import { initRouter } from './router.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +50,8 @@ async function boot() {
 
   initPlayer();
   initActions();
+  initLyrics();
+  initVisualizer();
   wireGlobalUi();
   renderUserChip(cfg.user || await safeMe());
 
@@ -63,7 +67,8 @@ async function boot() {
   requestAnimationFrame(() => {
     $('boot-splash')?.classList.add('done');
     $('app').classList.remove('hidden');
-    $('player-bar').classList.add('hidden');
+    // keep the bar when a previous session was restored into it
+    if (!get('current')) $('player-bar').classList.add('hidden');
     setTimeout(() => $('boot-splash')?.remove(), 600);
   });
 

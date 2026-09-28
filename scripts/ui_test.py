@@ -289,7 +289,132 @@ def main():
         page.reload(wait_until="load")
         time.sleep(1)
 
+        # ── v0.3.0: stats view ────────────────────────────────
+        page.goto(BASE + "/#/stats")
+        time.sleep(2.2)
+        check("stats: view renders", "plays" in (page.text_content("#view-root") or "").lower())
+        check("stats: charts drawn", page.locator(".chart-svg").count() >= 2)
+        check("stats: ranked rows", page.locator(".rank-row").count() >= 1)
+        # range chip re-renders without errors
+        page.locator("#st-ranges .chip >> nth=0").click()
+        time.sleep(1.4)
+        check("stats: range switch works", page.locator(".chart-svg").count() >= 2)
+        shot(page, "16-stats")
+
+        # ── v0.3.0: artist page ───────────────────────────────
+        page.goto(BASE + "/#/library")
+        time.sleep(2)
+        chips = page.locator("#lb-artists .artist-chip")
+        check("library: artist chips", chips.count() >= 1)
+        if chips.count():
+            chips.first.click()
+            time.sleep(1.6)
+            check("artist: page opens", page.evaluate("location.hash").startswith("#/artist/"))
+            check("artist: tracklist", page.locator(".tl-row").count() >= 1)
+            shot(page, "17-artist")
+
+        # ── v0.3.0: lyrics (needs the playing track from earlier) ──
+        page.keyboard.press("l")
+        page.wait_for_selector("#lyrics-overlay:not(.hidden)", timeout=5000)
+        time.sleep(3.5)
+        lrows = page.locator(".ly-line").count()
+        if lrows > 5:  # a lyric hit — check the synced highlight machinery
+            page.evaluate("document.getElementById('audio-el').currentTime = 45")
+            time.sleep(1.8)
+            check("lyrics: synced highlight", page.locator(".ly-line.active").count() == 1)
+            shot(page, "18-lyrics")
+        else:
+            shot(page, "18-lyrics-miss")  # graceful miss is also a valid state
+        page.keyboard.press("Escape")
+        time.sleep(0.4)
+
+        # ── v0.3.0: shuffle honors the clicked row ────────────
+        page.goto(BASE + "/#/search")
+        page.fill("#sr-input", "never gonna give you up")
+        page.keyboard.press("Enter")
+        time.sleep(4)
+        page.click("#pb-shuffle")  # on
+        time.sleep(0.4)
+        page.locator(".tl-row").nth(3).click()
+        time.sleep(2.2)
+        clicked = (page.locator(".tl-row").nth(3).locator(".tl-title").text_content() or "").strip()
+        playing = (page.text_content("#pb-title") or "").strip()
+        check("shuffle: clicked track plays first", clicked == playing,
+              f"clicked {clicked!r} playing {playing!r}")
+        page.click("#pb-shuffle")  # off
+
+        # ── v0.3.0: equalizer + backup cards in settings ──────
+        page.goto(BASE + "/#/settings")
+        time.sleep(1.6)
+        check("eq: three band sliders", page.locator(".eq-band input[type=range]").count() == 3)
+        page.locator('.eq-band input[data-band="bass"]').fill("6")
+        time.sleep(0.3)
+        check("eq: custom preset detected",
+              (page.locator("#st-eq-presets .chip.on").text_content() or "").strip() == "Custom")
+        check("backup: export card (admin)", page.locator("#st-backup-export").is_visible())
+        shot(page, "19-settings-eq")
+
+        # ── v0.3.0: playback speed + queue clear-upcoming ─────
+        page.click("#pb-cover-btn")
+        time.sleep(0.7)
+        page.click("#np-speed")
+        time.sleep(0.4)
+        check("speed: chip cycles", "1.25×" in (page.text_content("#np-speed-label") or ""))
+        check("speed: rate applied",
+              abs(page.evaluate("document.getElementById('audio-el').playbackRate") - 1.25) < 0.01)
+        page.keyboard.press(",")
+        time.sleep(0.3)
+        check("speed: reset key restores 1×",
+              "1×" in (page.text_content("#np-speed-label") or ""))
+        page.click("#np-close")
+        time.sleep(0.5)
+        page.evaluate("window._osmpOpenDrawer()")
+        time.sleep(0.5)
+        check("queue: clear-upcoming present", page.locator("#qd-clear-upcoming").count() == 1)
+        page.evaluate("window._osmpCloseDrawer()")
+
+        # ── v0.3.0: history view ──────────────────────────────
+        page.goto(BASE + "/#/history")
+        time.sleep(2.2)
+        check("history: journal renders", page.locator(".rank-row").count() >= 1)
+        check("history: grouped by day", page.locator("#hy-body .section").count() >= 1)
+        shot(page, "20-history")
+
+        # ── v0.3.0: made-for-you + EQ bypass + visualizer ────
+        page.goto(BASE + "/#/home")
+        time.sleep(2.2)
+        foryou = page.locator("#hm-foryou .card")
+        check("home: made-for-you shelf", foryou.count() >= 1)
+        shot(page, "21-made-for-you")
+
+        page.goto(BASE + "/#/settings")
+        time.sleep(1.4)
+        check("eq: bypass checkbox", page.locator("#st-eq-bypass").count() == 1)
+        page.uncheck("#st-eq-bypass")
+        time.sleep(0.4)
+        page.check("#st-eq-bypass")
+        time.sleep(0.4)
+
+        page.click("#pb-cover-btn")
+        time.sleep(0.7)
+        page.click("#np-viz")
+        time.sleep(1.2)
+        check("viz: canvas appears", page.locator("#np-viz-canvas:not(.hidden)").count() == 1)
+        page.click("#np-viz")
+        page.keyboard.press("?")
+        time.sleep(0.5)
+        check("kb: help overlay", "Keyboard shortcuts" in (page.text_content("#modal-host") or ""))
+        page.keyboard.press("Escape")
+        page.click("#np-close")
+
+        # radio surprise button
+        page.goto(BASE + "/#/radio")
+        time.sleep(1.2)
+        check("radio: surprise button", page.locator("#rd-surprise").count() == 1)
+
         # ── home with playback history ────────────────────────
+        page.goto(BASE + "/#/home")
+        time.sleep(1.8)
         shot(page, "15-home-final")
 
         # ── console errors ────────────────────────────────────

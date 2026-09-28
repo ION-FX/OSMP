@@ -7,13 +7,19 @@ server/          Python package (FastAPI). The only server code.
   osmp/
     main.py      app assembly, middleware, static UI mount
     api.py       all REST routes
-    youtube.py   every yt-dlp call lives here (search/resolve/download/mixes)
+    youtube.py   every yt-dlp call lives here (search/resolve/download/import)
     radio.py     recommendation-graph playlist generation
     llm.py       OpenAI-compatible curator client
+    lyrics.py    LRCLIB client + LRC parser (SQLite-cached)
     db.py        SQLite (WAL, thread-local connections)
+    auth.py      accounts/sessions (scrypt, cookie + bearer)
+    update.py    self-update (source/AppImage) + yt-dlp refresh
     config.py    data dirs + ffmpeg discovery
 webui/           the SPA. Vanilla ES modules, zero build step, no npm.
   js/            app/api/store/player/router/theme + views/ + components/
+  js/lyrics.js   synced-lyrics overlay (rAF follow loop)
+  js/eq.js       Web Audio graph: 3-band EQ + analyser tap
+  js/visualizer.js  canvas bars driven by the analyser
   css/           base (tokens/themes) · layout · components · player
   sw.js          app-shell cache (API + audio never cached)
 android/         Gradle project, framework-only Java (no androidx, no Kotlin).
@@ -56,6 +62,52 @@ FileResponse, which implements the same single-range semantics.
 No API keys, no scraping of private endpoints — only public playlist/search
 extraction through yt-dlp.
 
+## Lyrics (`lyrics.py`)
+
+1. **Clean** — YouTube titles are noisy: strip `- Topic` / `VEVO` from
+   artists, split the common `Artist - Title` shape, remove bracketed
+   release clutter (`(Official Video)`, `[4K Remaster]`, `(feat. …)`).
+2. **Fetch** — LRCLIB's exact-match `/get` answer joins the `/search`
+   candidate pool (it can be a vandalized entry while search holds healthy
+   copies); candidates must pass a sanity gate (≥5 synced lines or ≥80
+   chars of plain text) and are ranked: synced > plain, exact title,
+   artist containment, duration proximity.
+3. **Cache** — hits persist 90 days, misses 7 (so hopeless tracks retry
+   weekly); network errors are never cached as misses. The `lyrics` table
+   is one row per track id.
+
+The client (`webui/js/lyrics.js`) renders `[{t, line}]` as clickable
+paragraphs; a rAF loop finds the active line by binary scan of
+`audio.currentTime`, centers it (suppressed for ~3.5 s after real user
+scroll input — wheel/touchmove, since programmatic `scrollTo` also fires
+`scroll` events).
+
+## Audio graph (`webui/js/eq.js`)
+
+Built lazily on first slider/preset interaction (a gesture is required to
+start an AudioContext, and `createMediaElementSource` only works once per
+element — ever):
+
+```
+<audio> → lowshelf 180 Hz → peaking 1.4 kHz → highshelf 5.2 kHz → destination
+                                      └→ analyser (visualizer tap)
+```
+
+The analyser is a dead-end tap, so visualizing with a flat EQ changes
+nothing. If the context suspends (backgrounding), the player resumes it on
+every `playing` event — a suspended context means total silence once the
+graph exists.
+
+## Stats (`db.py` + `views/stats.js`)
+
+History rows record `(track_id, played_at, user_id)`. Stats aggregate over
+a window: plays, distinct tracks/artists, estimated minutes (plays × track
+duration — an upper bound, since we log starts not completions), per-local-day
+zero-filled series, and a lifetime hour-of-day histogram. Charts are
+hand-rolled inline SVG (viewBox 760×H, bar-per-day/hour, `<title>`
+tooltips) — no chart library. Admins may query `scope=all`; listeners are
+pinned to their own rows server-side.
+
 ## LLM curator (`llm.py`)
 
 Any OpenAI-compatible `POST {base}/chat/completions`. The system prompt forces
@@ -97,7 +149,15 @@ unresolvable picks are reported, never fatal.
 ## Testing
 
 `scripts/ui_test.py` drives headless Chromium (Playwright, Python) against a
-live server and live YouTube: boot, search, real playback (asserting
-`currentTime` advances), pause/resume, repeat modes, shuffle, seek, volume,
-queue drawer, sleep timer, now-playing overlay, radio generation, playlist
-save, all three themes — with screenshots and a console-error gate.
+live server and live YouTube: boot, login gate, search, real playback
+(asserting `currentTime` advances), pause/resume, repeat modes, shuffle
+(including the picked-track-first regression), seek, volume, queue drawer,
+sleep timer, now-playing overlay, radio generation, playlist save, import,
+all three themes, stats, artist pages, synced-lyrics highlighting, EQ,
+playback speed, history — 49 checks with screenshots and a console-error
+gate.
+
+`scripts/api_test.py` covers the HTTP surface of the v0.3.0 features:
+lyrics resolution + caching, stats shape/guards, mixes, artists, the
+history log, backup export/import round-trip, and the 401/403/role guards
+around them (30 checks).

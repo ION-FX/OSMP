@@ -39,6 +39,14 @@ export async function mount(root) {
       <div id="hm-recent"></div>
     </section>
 
+    <section class="section" id="hm-foryou-sec" style="display:none">
+      <div class="section-head-row">
+        <h2>Made for you</h2>
+        <a class="text-btn" href="#/stats">Your stats →</a>
+      </div>
+      <div class="card-grid" id="hm-foryou"></div>
+    </section>
+
     <section class="section">
       <div class="section-head-row">
         <h2>Quick mixes</h2>
@@ -108,6 +116,63 @@ export async function mount(root) {
       renderTracklist(root.querySelector('#hm-recent'), home.recent.slice(0, 8), {});
     }
 
+    // "Made for you" — artist mixes derived from this account's plays
+    try {
+      const mx = await api.mixes();
+      if (mx.mixes && mx.mixes.length) {
+        root.querySelector('#hm-foryou-sec').style.display = '';
+        const host = root.querySelector('#hm-foryou');
+        mx.mixes.slice(0, 6).forEach((m, i) => {
+          const card = document.createElement('div');
+          card.className = 'card foryou-card';
+          card.innerHTML = `
+            <div class="card-cover">
+              <div class="cover-fallback" style="background:linear-gradient(135deg,
+                hsl(${(i * 63 + 200) % 360} 62% 30%), hsl(${(i * 63 + 300) % 360} 72% 48%))">
+                <span class="foryou-initial">${escapeHtml((m.seed || '?').slice(0, 1).toUpperCase())}</span>
+              </div>
+              <button class="card-play" title="Generate mix">${icon('play', 18, true)}</button>
+            </div>
+            <div class="card-title ellipsis"></div>
+            <div class="card-sub"></div>`;
+          card.querySelector('.card-title').textContent = m.title;
+          card.querySelector('.card-sub').textContent = m.subtitle || 'radio mix';
+          card.onclick = () => {
+            location.hash = `#/radio?seed=${encodeURIComponent(m.seed)}&auto=1`;
+          };
+          host.appendChild(card);
+        });
+      }
+      // downloaded but never played — give them a shelf
+      if (mx.fresh && mx.fresh.length >= 3) {
+        const sec = document.createElement('section');
+        sec.className = 'section';
+        sec.innerHTML = `
+          <div class="section-head-row">
+            <h2>Downloaded, never played</h2>
+            <a class="text-btn" href="#/library">Library →</a>
+          </div>
+          <div class="row gap-m" id="hm-fresh" style="flex-wrap:wrap;gap:10px"></div>`;
+        const freshHost = sec.querySelector('#hm-fresh');
+        mx.fresh.slice(0, 6).forEach(t => {
+          const chip = document.createElement('button');
+          chip.className = 'chip';
+          chip.title = `${t.title || ''} — ${t.artist || ''}`;
+          const label = document.createElement('span');
+          label.className = 'ellipsis';
+          label.style.cssText = 'display:inline-block;max-width:220px';
+          label.textContent = t.title || t.id;
+          chip.appendChild(label);
+          chip.onclick = () => {
+            import('../player.js').then(p => p.playTracks([t], 0));
+          };
+          freshHost.appendChild(chip);
+        });
+        root.querySelector('#hm-foryou-sec').after(sec);
+      }
+    } catch { /* mixes are decorative — never block the page */
+    }
+
     if (home.playlists && home.playlists.length) {
       root.querySelector('#hm-pl-sec').style.display = '';
       const host = root.querySelector('#hm-playlists');
@@ -137,4 +202,10 @@ export async function mount(root) {
   } catch (e) {
     console.warn('[home] data load failed', e);
   }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }

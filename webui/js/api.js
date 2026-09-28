@@ -149,6 +149,18 @@ export const api = {
   llmCurate:     (prompt, count = 20) =>
     req('/api/radio/llm', { method: 'POST', body: { prompt, count } }),
 
+  // lyrics & stats
+  lyrics:        (trackId) => req(`/api/lyrics/${encodeURIComponent(trackId)}`),
+  stats:         (days = 30, scope = 'me') =>
+    req(`/api/stats?days=${days}&scope=${scope}`),
+  mixes:         () => req('/api/mixes'),
+  historyLog:    (limit = 200) => req(`/api/history/log?limit=${limit}`),
+  artist:        (name) => req(`/api/artist?name=${encodeURIComponent(name)}`),
+  artists:       (q = '') => req(`/api/artists?q=${encodeURIComponent(q)}`),
+
+  // backup (admin)
+  backupRestore: (data) => req('/api/backup/restore', { method: 'POST', body: { data } }),
+
   // settings & history
   settings:      () => req('/api/settings'),
   saveSettings:  (patch) => req('/api/settings', { method: 'PUT', body: patch }),

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, db, llm, radio, update, youtube
+from . import auth, db, llm, lyrics, radio, update, youtube
 from .config import get_config
 
 log = logging.getLogger("osmp.api")
@@ -839,3 +839,130 @@ def home(request: Request):
         "playlists": len(db.list_playlists()),
     }
     return {"recent": recent, "downloads": offline, "playlists": playlists, "stats": stats}
+
+
+# --------------------------------------------------------------- lyrics
+
+@router.get("/lyrics/{video_id}")
+def lyrics_for(video_id: str):
+    row = db.get_track(video_id)
+    if row:
+        track = dict(row)
+    else:
+        try:
+            track = youtube.get_metadata(video_id)
+        except youtube.TrackUnavailable as exc:
+            raise HTTPException(404, str(exc))
+        except youtube.ResolveError as exc:
+            raise HTTPException(502, str(exc))
+    return lyrics.get_lyrics(track)
+
+
+# --------------------------------------------------------------- stats
+
+@router.get("/stats")
+def stats(request: Request, days: int = 30, scope: str = "me"):
+    days = max(1, min(days, 365))
+    user = require_user(request)
+    uid = None if (scope == "all" and user["role"] == "admin") else str(user["id"])
+    out = db.stats_summary(days, user_id=uid)
+    out["by_day"] = db.stats_by_day(days, user_id=uid)
+    out["by_hour"] = db.stats_by_hour(user_id=uid)
+    out["scope"] = "all" if uid is None else "me"
+    return out
+
+
+@router.get("/history/log")
+def history_log_view(request: Request, limit: int = 200):
+    user = require_user(request)
+    limit = max(1, min(limit, 1000))
+    out = []
+    for t in db.history_log(limit, user_id=str(user["id"])):
+        row = _track_out(t)
+        row["played_at"] = t["played_at"]
+        out.append(row)
+    return {"plays": out}
+
+
+@router.get("/mixes")
+def mixes(request: Request):
+    """"Made for you" shelf. Cheap on purpose (SQLite only) — the actual mix
+    is generated on click through the existing radio endpoint."""
+    user = current_user(request)
+    uid = str(user["id"]) if user else "local"
+    summary = db.stats_summary(90, user_id=uid)
+    cards = [{"id": f"artist:{a['artist']}",
+              "kind": "artist",
+              "title": f"More like {a['artist']}",
+              "subtitle": f"{a['plays']} plays · {a['tracks']} tracks",
+              "seed": a["artist"]}
+             for a in summary["top_artists"] if a["plays"] >= 2][:5]
+    recent = db.recent_history(6, user_id=uid)
+    fresh = [t for t in db.list_tracks(offline_only=True, limit=500)
+             if not (t.get("play_count") or 0)][:8]
+    return {"mixes": cards,
+            "jump_back_in": [_track_out(t) for t in recent],
+            "fresh": [_track_out(t) for t in fresh]}
+
+
+# --------------------------------------------------------------- artists
+
+@router.get("/artist")
+def artist_page(name: str, request: Request):
+    """Everything the artist view needs: library tracks + play stats."""
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(400, "artist name required")
+    user = current_user(request)
+    uid = str(user["id"]) if user else "local"
+    tracks = [_track_out(t) for t in db.tracks_by_artist(name)]
+    stats = db.artist_play_stats(name, user_id=uid)
+    return {
+        "artist": name,
+        "tracks": tracks,
+        "total_duration": sum(t.get("duration") or 0 for t in tracks),
+        "plays": stats["plays"],
+        "seconds": stats["seconds"],
+        "last_played": stats["last_played"],
+    }
+
+
+@router.get("/artists")
+def artists_list(q: str = "", limit: int = 60):
+    rows = db.list_artists(limit=min(max(limit, 1), 200))
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r["artist"] or "").lower()]
+    return {"artists": rows}
+
+
+# --------------------------------------------------------------- backup
+
+@router.get("/backup")
+def backup_export(request: Request):
+    from . import __version__
+    require_admin(request)
+    data = db.export_library()
+    data["format"] = "osmp-backup"
+    data["version"] = __version__
+    data["exported_at"] = time.time()
+    fname = time.strftime("osmp-backup-%Y%m%d-%H%M.json")
+    return JSONResponse(data, headers={
+        "Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+class RestoreIn(BaseModel):
+    data: dict
+
+
+@router.post("/backup/restore")
+def backup_restore(request: Request, body: RestoreIn):
+    require_admin(request)
+    data = body.data or {}
+    if data.get("format") not in (None, "osmp-backup"):
+        raise HTTPException(400, "Not an OSMP backup file")
+    try:
+        result = db.import_library(data)
+    except Exception as exc:  # noqa: BLE001 — shape errors become 400s
+        raise HTTPException(400, f"Backup is malformed: {exc}")
+    return {"ok": True, **result}

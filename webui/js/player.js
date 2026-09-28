@@ -6,6 +6,7 @@ import { get, set, sub, persist, load, emit } from './store.js';
 import { setAmbientFromCover } from './theme.js';
 import { hydrateIcons, icon, setIcon } from './components/icons.js';
 import { toast, toastErr } from './components/toast.js';
+import { ensureRunning } from './eq.js';
 
 const audio = () => document.getElementById('audio-el');
 const el = {}; // cached player-bar elements
@@ -14,6 +15,7 @@ let order = [];            // playback order: array of queue indices
 let failStreak = 0;        // consecutive load failures (auto-skip guard)
 let sleepTick = null;
 let fadeTimer = null;
+let fadeVolume = null;     // level the sleep fade last applied (user-nudge guard)
 let npOpen = false;
 let restoreVolume = null;  // volume before sleep fade
 
@@ -23,15 +25,21 @@ export function bridge() {
 
 // ── queue / order ────────────────────────────────────────────────────
 
+function shuffled(list) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function rebuildOrder(keepCurrent = true) {
   const q = get('queue');
   const cur = get('queueIndex');
   order = q.map((_, i) => i);
   if (get('shuffle') && q.length > 1) {
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
-    }
+    order = shuffled(order);
     if (keepCurrent && cur >= 0) {
       const at = order.indexOf(cur);
       if (at > 0) { order.splice(at, 1); order.unshift(cur); }
@@ -46,13 +54,15 @@ export function playTracks(tracks, startIndex = 0, opts = {}) {
   const q = tracks.map(t => ({ ...t }));
   set({ queue: q, queueIndex: -1 }, false);
   if (opts.shuffle !== undefined) set({ shuffle: opts.shuffle }, false);
-  rebuildOrder(false);
   if (get('shuffle')) {
-    // current-ish track first in shuffled order
-    order = q.map((_, i) => i);
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
+    order = shuffled(q.map((_, i) => i));
+    // The picked track always starts playback — shuffle only reorders what
+    // comes after it. Header "Shuffle" buttons opt into a random opener
+    // via { random: true }.
+    if (opts.random !== true) {
+      const pick = Math.min(Math.max(startIndex, 0), q.length - 1);
+      const at = order.indexOf(pick);
+      if (at > 0) { order.splice(at, 1); order.unshift(pick); }
     }
     startAtOrder(0);
   } else {
@@ -138,7 +148,7 @@ export function next(auto = false) {
     audio().pause();
     set({ playing: false });
     updatePlayButton();
-    if (get('sleep').endOfTrack) fireSleepEnd();
+    if (get('sleep').endOfTrack || get('sleep').endOfQueue) fireSleepEnd();
   } else {
     startAtOrder(0);
   }
@@ -212,6 +222,15 @@ export function moveInQueue(fromOrderPos, toOrderPos) {
   saveState();
 }
 
+export function clearUpcoming() {
+  const pos = orderPos(get('queueIndex'));
+  if (pos < 0) return;
+  order = order.slice(0, pos + 1);
+  emit('queue');
+  saveState();
+  toast('Cleared upcoming tracks', { icon: 'trash' });
+}
+
 export function clearQueue() {
   audio().pause();
   audio().removeAttribute('src');
@@ -235,12 +254,48 @@ export function setSleepMinutes(minutes) {
   toast(`Sleep timer set — ${minutes} min`, { icon: 'moon' });
 }
 
+// ── playback speed ───────────────────────────────────────────────────
+
+const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
+
+export function cycleSpeed() {
+  const cur = get('speed') || 1;
+  const nextSpeed = SPEEDS[(SPEEDS.indexOf(cur) + 1) % SPEEDS.length] || 1;
+  setSpeed(nextSpeed);
+  return nextSpeed;
+}
+
+export function setSpeed(v) {
+  const val = SPEEDS.includes(v) ? v : 1;
+  const a = audio();
+  a.playbackRate = val;
+  try { a.preservesPitch = val === 1; } catch { /* older engines */ }
+  set({ speed: val });
+  persist('speed', val);
+  // keep the now-playing chip in sync no matter who set the speed
+  const btn = document.getElementById('np-speed');
+  const lbl = document.getElementById('np-speed-label');
+  if (btn && lbl) {
+    btn.classList.toggle('on', val !== 1);
+    lbl.textContent = `${val}×`;
+  }
+  if (val !== 1) toast(`Speed ${val}×`, { icon: 'zap' });
+}
+
 export function setSleepEndOfTrack() {
   clearSleep(false);
-  set({ sleep: { mode: 'end', endsAt: 0, endOfTrack: true } });
+  set({ sleep: { mode: 'end', endsAt: 0, endOfTrack: true, endOfQueue: false } });
   persist('sleep', get('sleep'));
   updateSleepUi();
   toast('Will sleep at the end of this track', { icon: 'moon' });
+}
+
+export function setSleepEndOfQueue() {
+  clearSleep(false);
+  set({ sleep: { mode: 'queue', endsAt: 0, endOfTrack: false, endOfQueue: true } });
+  persist('sleep', get('sleep'));
+  updateSleepUi();
+  toast('Will sleep when the queue runs out', { icon: 'moon' });
 }
 
 export function clearSleep(notify = true) {
@@ -282,7 +337,8 @@ function fadeOutAndPause() {
   if (fadeTimer) clearTimeout(fadeTimer);
   const tick = () => {
     i++;
-    a.volume = Math.max(0, restoreVolume * (1 - i / steps));
+    fadeVolume = Math.max(0, restoreVolume * (1 - i / steps));
+    a.volume = fadeVolume;
     if (i < steps) {
       fadeTimer = setTimeout(tick, stepMs);
     } else {
@@ -291,6 +347,7 @@ function fadeOutAndPause() {
       updatePlayButton();
       a.volume = restoreVolume; // restore for next manual play
       restoreVolume = null;
+      fadeVolume = null;
       bridge()?.notifyMedia?.(safeJson({ playing: false }));
     }
   };
@@ -430,8 +487,8 @@ function updateSleepUi() {
     }
   } else {
     count.classList.add('hidden');
-    count.textContent = s.mode === 'end' ? 'EOT' : '';
-    if (s.mode === 'end') count.classList.remove('hidden');
+    count.textContent = s.mode === 'end' ? 'EOT' : s.mode === 'queue' ? 'EOQ' : '';
+    if (s.mode === 'end' || s.mode === 'queue') count.classList.remove('hidden');
     el.sleep.querySelector('.sleep-ring')?.remove();
   }
 }
@@ -620,7 +677,12 @@ export function initPlayer() {
     repeat: load('repeat', 'off') || 'off',
     volume: load('volume', 0.8),
     muted: !!load('muted', false),
+    speed: load('speed', 1) || 1,
   }, false);
+  if (get('speed') !== 1) {
+    a.playbackRate = get('speed');
+    try { a.preservesPitch = false; } catch { /* older engines */ }
+  }
   a.volume = get('volume');
   a.muted = get('muted');
   el.vol.value = Math.round(get('volume') * 100);
@@ -633,7 +695,7 @@ export function initPlayer() {
   if (savedSleep && savedSleep.mode === 'timer' && savedSleep.endsAt > Date.now()) {
     set({ sleep: savedSleep }, false);
     startSleepTick();
-  } else if (savedSleep && savedSleep.mode === 'end') {
+  } else if (savedSleep && (savedSleep.mode === 'end' || savedSleep.mode === 'queue')) {
     set({ sleep: savedSleep }, false);
   }
   updateSleepUi();
@@ -647,13 +709,24 @@ export function initPlayer() {
   el.vol.oninput = () => setVolume(el.vol.value / 100);
   el.mute.onclick = toggleMute;
   el.title.onclick = openNowPlaying;
+  el.artist.onclick = () => {
+    const t = get('current');
+    if (t && t.artist) location.hash = `#/artist/${encodeURIComponent(t.artist)}`;
+  };
+  document.getElementById('np-artist').onclick = () => {
+    const t = get('current');
+    if (t && t.artist) location.hash = `#/artist/${encodeURIComponent(t.artist)}`;
+  };
   document.getElementById('pb-cover-btn').onclick = openNowPlaying;
   document.getElementById('pb-expand').onclick = openNowPlaying;
   bindScrubbing();
   startProgressLoop();
 
   // audio events
-  a.addEventListener('playing', () => { set({ playing: true }); updatePlayButton(); failStreak = 0; });
+  a.addEventListener('playing', () => {
+    set({ playing: true }); updatePlayButton(); failStreak = 0;
+    ensureRunning(); // an EQ'd element is silent while its context sleeps
+  });
   a.addEventListener('pause', () => { set({ playing: false }); updatePlayButton(); });
   a.addEventListener('ended', () => {
     if (get('sleep').endOfTrack && get('repeat') !== 'one') { fireSleepEnd(); return; }
@@ -673,7 +746,15 @@ export function initPlayer() {
     }
   });
   a.addEventListener('volumechange', () => {
-    if (!restoreVolume === null) return;
+    // The sleep fade sets volume itself; any level that doesn't match the
+    // fade's last step is the user moving the slider mid-fade — hand
+    // control back instead of stomping their choice on the next tick.
+    if (fadeTimer && fadeVolume !== null && Math.abs(a.volume - fadeVolume) > 0.015) {
+      clearTimeout(fadeTimer);
+      fadeTimer = null;
+      restoreVolume = null;
+      fadeVolume = null;
+    }
   });
 
   // media keys / OS integration
@@ -696,6 +777,18 @@ export function initPlayer() {
     else if (e.key === 'ArrowRight' && e.shiftKey) next(false);
     else if (e.key === 'ArrowLeft' && e.shiftKey) prev();
     else if (e.key === 'm') toggleMute();
+    else if (e.key === '.') cycleSpeed();
+    else if (e.key === ',') setSpeed(1);
+    else if (e.key === 'l') import('./lyrics.js').then(m => m.toggleLyrics());
+    else if (e.key === 's') toggleShuffle();
+    else if (e.key === 'q') document.getElementById('pb-queue')?.click();
+    else if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      location.hash = '#/search';
+      setTimeout(() => document.getElementById('sr-input')?.focus(), 120);
+    } else if (e.key === '?') {
+      import('./actions.js').then(a => a.showShortcutsHelp());
+    }
   });
 
   // queue drawer
@@ -719,6 +812,13 @@ export function initPlayer() {
   document.getElementById('qd-close').onclick = closeDrawer;
   backdrop.onclick = closeDrawer;
   document.getElementById('qd-clear').onclick = () => { clearQueue(); renderQueueDrawer(); };
+  document.getElementById('qd-clear-upcoming').onclick = () => { clearUpcoming(); renderQueueDrawer(); };
+  document.getElementById('np-speed').onclick = () => cycleSpeed();
+  { // reflect persisted speed on boot
+    const v = get('speed') || 1;
+    document.getElementById('np-speed').classList.toggle('on', v !== 1);
+    document.getElementById('np-speed-label').textContent = `${v}×`;
+  }
   document.getElementById('np-close').onclick = closeNowPlaying;
   document.getElementById('np-queue').onclick = openDrawer;
   window._osmpCloseDrawer = closeDrawer;

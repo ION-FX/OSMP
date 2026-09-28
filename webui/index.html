@@ -73,6 +73,7 @@
       <a href="#/radio"   data-route="radio"    class="nav-item"><span class="nav-ico" data-icon="radio"></span><span>Radio</span><span class="nav-badge beta">AI</span></a>
       <a href="#/library" data-route="library"  class="nav-item"><span class="nav-ico" data-icon="library"></span><span>Library</span></a>
       <a href="#/import"  data-route="import"   class="nav-item"><span class="nav-ico" data-icon="download"></span><span>Import</span></a>
+      <a href="#/stats"   data-route="stats"     class="nav-item"><span class="nav-ico" data-icon="chart"></span><span>Stats</span></a>
     </nav>
 
     <div class="sidebar-section">
@@ -98,6 +99,7 @@
     <header class="qd-head">
       <h2>Queue</h2>
       <div class="qd-actions">
+        <button id="qd-clear-upcoming" class="text-btn" title="Remove everything after the current track">Clear upcoming</button>
         <button id="qd-clear" class="text-btn" title="Clear queue">Clear</button>
         <button id="qd-close" class="icon-btn" title="Close" data-icon-btn="close"></button>
       </div>
@@ -142,6 +144,7 @@
   </div>
 
   <div class="pb-right">
+    <button id="pb-lyrics" class="icon-btn" title="Lyrics" data-icon-btn="lyrics"></button>
     <button id="pb-sleep" class="icon-btn" title="Sleep timer" data-icon-btn="moon"></button>
     <span id="pb-sleep-count" class="sleep-count hidden"></span>
     <button id="pb-queue" class="icon-btn" title="Queue" data-icon-btn="queue"></button>
@@ -163,17 +166,38 @@
   </header>
   <div class="np-body">
     <div class="np-cover-wrap"><div id="np-cover" class="np-cover"></div></div>
+    <canvas id="np-viz-canvas" class="np-viz hidden" width="600" height="110"
+            aria-hidden="true"></canvas>
     <div class="np-info">
       <h1 id="np-title"></h1>
       <div id="np-artist"></div>
       <div class="np-actions">
         <button id="np-like" class="icon-btn" title="Save to Liked" data-icon-btn="heart"></button>
+        <button id="np-lyrics" class="icon-btn" title="Lyrics" data-icon-btn="lyrics"></button>
+        <button id="np-viz" class="icon-btn" title="Visualizer" data-icon-btn="waves"></button>
         <button id="np-download" class="icon-btn" title="Download for offline" data-icon-btn="download"></button>
         <button id="np-playlist" class="icon-btn" title="Add to playlist" data-icon-btn="playlist-plus"></button>
         <button id="np-radio" class="icon-btn" title="Start radio from this track" data-icon-btn="radio"></button>
         <button id="np-sleep" class="icon-btn" title="Sleep timer" data-icon-btn="moon"></button>
+        <button id="np-speed" class="btn ghost speed-chip" title="Playback speed ( . cycles, , resets )"><span id="np-speed-label">1×</span></button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════ lyrics overlay ══════════════ -->
+<div id="lyrics-overlay" class="hidden" aria-hidden="true">
+  <div id="ly-ambient" aria-hidden="true"></div>
+  <header class="ly-head">
+    <button id="ly-close" class="icon-btn" title="Close" data-icon-btn="chevron-down"></button>
+    <div class="ly-head-meta">
+      <div id="ly-title" class="ly-title"></div>
+      <div id="ly-artist" class="ly-artist"></div>
+    </div>
+    <button id="ly-np" class="icon-btn" title="Now playing" data-icon-btn="expand"></button>
+  </header>
+  <div id="ly-scroll" class="ly-scroll">
+    <div id="ly-col" class="ly-col"></div>
   </div>
 </div>
 

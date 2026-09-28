@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS sessions(
   expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS lyrics(
+  track_id     TEXT PRIMARY KEY,
+  found        INTEGER NOT NULL DEFAULT 0,
+  synced       TEXT,
+  plain        TEXT,
+  instrumental INTEGER NOT NULL DEFAULT 0,
+  fetched_at   REAL NOT NULL
+);
 """
 
 _MIGRATIONS = (
@@ -162,6 +170,50 @@ def list_tracks(offline_only: bool = False, limit: int = 500, cfg: Config | None
     return [dict(r) for r in rows]
 
 
+def tracks_by_artist(artist: str, limit: int = 400,
+                     cfg: Config | None = None) -> list[dict]:
+    """Library tracks for one artist, most played first."""
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            """SELECT * FROM tracks WHERE lower(artist) = lower(?)
+               ORDER BY play_count DESC, last_played DESC NULLS LAST,
+                        added_at DESC LIMIT ?""",
+            (artist.strip(), limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def artist_play_stats(artist: str, user_id: str | None = None,
+                      cfg: Config | None = None) -> dict:
+    """Lifetime play totals for an artist (all users unless scoped)."""
+    cfg = cfg or get_config()
+    scope, args = _history_scope(0, user_id)
+    with _connect(cfg) as conn:
+        row = conn.execute(
+            f"""SELECT COUNT(*) AS plays,
+                       COALESCE(SUM(t.duration), 0) AS seconds,
+                       MAX(h.played_at) AS last_played
+                FROM history h JOIN tracks t ON t.id = h.track_id
+                WHERE {scope} AND lower(t.artist) = lower(?)""",
+            args + [artist.strip()]).fetchone()
+    return {"plays": row["plays"], "seconds": int(row["seconds"] or 0),
+            "last_played": row["last_played"]}
+
+
+def list_artists(limit: int = 100, cfg: Config | None = None) -> list[dict]:
+    """Distinct artists in the library with track counts, for browse."""
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            """SELECT artist, COUNT(*) AS tracks,
+                      SUM(file_path IS NOT NULL) AS offline,
+                      COALESCE(SUM(play_count), 0) AS plays
+               FROM tracks GROUP BY lower(artist)
+               ORDER BY plays DESC, tracks DESC LIMIT ?""",
+            (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def set_track_file(track_id: str, file_path: str | None, file_size: int | None,
                    cfg: Config | None = None) -> None:
     cfg = cfg or get_config()
@@ -204,6 +256,217 @@ def recent_history(limit: int = 12, user_id: str | None = None,
     else:
         rows = _connect(cfg).execute(q.format(where=""), (limit,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def history_log(limit: int = 200, user_id: str | None = None,
+                 cfg: Config | None = None) -> list[dict]:
+    """Raw play journal (newest first) — one row per play, unlike
+    recent_history which dedupes by track."""
+    cfg = cfg or get_config()
+    q = """SELECT t.*, h.played_at FROM history h
+           JOIN tracks t ON t.id = h.track_id
+           {where} ORDER BY h.played_at DESC LIMIT ?"""
+    if user_id:
+        rows = _connect(cfg).execute(
+            q.format(where="WHERE h.user_id=?"), (user_id, limit)).fetchall()
+    else:
+        rows = _connect(cfg).execute(q.format(where=""), (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------- lyrics cache
+
+def get_cached_lyrics(track_id: str, cfg: Config | None = None) -> dict | None:
+    """Lyrics cache row or None; the caller applies the hit/miss TTL."""
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        row = conn.execute("SELECT * FROM lyrics WHERE track_id=?",
+                           (track_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def save_cached_lyrics(track_id: str, found: bool, synced: str | None,
+                       plain: str | None, instrumental: bool = False,
+                       cfg: Config | None = None) -> None:
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        conn.execute(
+            """INSERT INTO lyrics(track_id, found, synced, plain, instrumental, fetched_at)
+               VALUES(?,?,?,?,?,?)
+               ON CONFLICT(track_id) DO UPDATE SET
+                 found=excluded.found, synced=excluded.synced,
+                 plain=excluded.plain, instrumental=excluded.instrumental,
+                 fetched_at=excluded.fetched_at""",
+            (track_id, int(found), synced, plain, int(instrumental), time.time()))
+
+
+# ---------------------------------------------------------------- stats
+
+def stats_summary(days: int = 30, user_id: str | None = None,
+                  cfg: Config | None = None) -> dict:
+    """Listening stats over a window.
+
+    Minutes are estimated as plays × track duration — history rows record
+    the start of a play, not how much of it was heard, so this is an upper
+    bound that matches how Spotify-style dashboards approximate it.
+    """
+    cfg = cfg or get_config()
+    since = time.time() - days * 86400
+    scope, args = _history_scope(since, user_id)
+    conn = _connect(cfg)
+    total = conn.execute(
+        f"""SELECT COUNT(*) AS plays,
+                   COUNT(DISTINCT h.track_id) AS tracks,
+                   COUNT(DISTINCT lower(t.artist)) AS artists,
+                   COALESCE(SUM(t.duration), 0) AS seconds
+            FROM history h JOIN tracks t ON t.id=h.track_id
+            WHERE {scope}""", args).fetchone()
+    top_tracks = conn.execute(
+        f"""SELECT t.*, COUNT(*) AS plays,
+                   MAX(h.played_at) AS last_played,
+                   COALESCE(SUM(t.duration), 0) AS seconds
+            FROM history h JOIN tracks t ON t.id=h.track_id
+            WHERE {scope}
+            GROUP BY h.track_id ORDER BY plays DESC, last_played DESC LIMIT 12""",
+        args).fetchall()
+    top_artists = conn.execute(
+        f"""SELECT t.artist AS artist, COUNT(*) AS plays,
+                   COUNT(DISTINCT h.track_id) AS tracks,
+                   COALESCE(SUM(t.duration), 0) AS seconds,
+                   MAX(h.played_at) AS last_played
+            FROM history h JOIN tracks t ON t.id=h.track_id
+            WHERE {scope}
+            GROUP BY lower(t.artist) ORDER BY plays DESC LIMIT 8""",
+        args).fetchall()
+    return {
+        "days": days,
+        "plays": total["plays"],
+        "tracks": total["tracks"],
+        "artists": total["artists"],
+        "seconds": int(total["seconds"] or 0),
+        "top_tracks": [dict(r) for r in top_tracks],
+        "top_artists": [dict(r) for r in top_artists],
+    }
+
+
+def stats_by_day(days: int = 30, user_id: str | None = None,
+                 cfg: Config | None = None) -> list[dict]:
+    """Plays + estimated seconds per local day, zero-filled for charting."""
+    cfg = cfg or get_config()
+    since = time.time() - days * 86400
+    scope, args = _history_scope(since, user_id)
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            f"""SELECT date(h.played_at, 'unixepoch', 'localtime') AS day,
+                       COUNT(*) AS plays,
+                       COALESCE(SUM(t.duration), 0) AS seconds
+                FROM history h JOIN tracks t ON t.id=h.track_id
+                WHERE {scope}
+                GROUP BY day""", args).fetchall()
+    by_day = {r["day"]: dict(r) for r in rows}
+    out = []
+    now = time.time()
+    for i in range(days - 1, -1, -1):
+        day = time.strftime("%Y-%m-%d", time.localtime(now - i * 86400))
+        hit = by_day.get(day)
+        out.append({"day": day, "plays": hit["plays"] if hit else 0,
+                    "seconds": int(hit["seconds"]) if hit else 0})
+    return out
+
+
+def stats_by_hour(user_id: str | None = None, cfg: Config | None = None) -> list[dict]:
+    """Lifetime plays per local hour-of-day (24 buckets)."""
+    cfg = cfg or get_config()
+    scope, args = _history_scope(0, user_id)
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            f"""SELECT CAST(strftime('%H', h.played_at, 'unixepoch', 'localtime') AS INTEGER) AS hour,
+                       COUNT(*) AS plays
+                FROM history h WHERE {scope} GROUP BY hour""", args).fetchall()
+    by_hour = {r["hour"]: r["plays"] for r in rows}
+    return [{"hour": h, "plays": by_hour.get(h, 0)} for h in range(24)]
+
+
+def _history_scope(since: float, user_id: str | None) -> tuple[str, list]:
+    cond = ["h.played_at >= ?"]
+    args: list = [since]
+    if user_id:
+        cond.append("h.user_id = ?")
+        args.append(user_id)
+    return " AND ".join(cond), args
+
+
+# ---------------------------------------------------------------- backup
+
+def export_library(cfg: Config | None = None) -> dict:
+    """Everything needed to rebuild playlists on another instance.
+
+    Deliberately excludes secrets (LLM keys, pins) and account data — this
+    is a library backup, not a server clone.
+    """
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        tracks = conn.execute(
+            """SELECT id, title, artist, duration, thumbnail, play_count
+               FROM tracks""").fetchall()
+        playlists = conn.execute(
+            "SELECT id, name, description, kind, created_at FROM playlists "
+            "ORDER BY created_at").fetchall()
+        entries = conn.execute(
+            """SELECT playlist_id, track_id, position FROM playlist_tracks
+               ORDER BY playlist_id, position""").fetchall()
+    ids_by_pl: dict[int, list[str]] = {}
+    for e in entries:
+        ids_by_pl.setdefault(e["playlist_id"], []).append(e["track_id"])
+    settings = {k: v for k, v in all_settings(cfg).items()
+                if k in _PUBLIC_SAFE}
+    return {
+        "tracks": [dict(t) for t in tracks],
+        "playlists": [{**dict(p), "track_ids": ids_by_pl.get(p["id"], [])}
+                      for p in playlists],
+        "settings": settings,
+    }
+
+
+def import_library(data: dict, cfg: Config | None = None) -> dict:
+    """Merge a backup into this instance: upsert track metadata, recreate any
+    playlist whose name doesn't exist yet, and report what happened."""
+    cfg = cfg or get_config()
+    track_meta = {}
+    for t in data.get("tracks") or []:
+        if isinstance(t, dict) and t.get("id"):
+            track_meta[t["id"]] = t
+            upsert_track(t, cfg)
+    existing = {p["name"]: p["id"]
+                for p in list_playlists(cfg)}
+    created, merged, skipped = 0, 0, 0
+    for pl in data.get("playlists") or []:
+        name = (pl.get("name") or "").strip()
+        ids = [i for i in (pl.get("track_ids") or []) if i in track_meta]
+        if not name:
+            continue
+        if name in existing:
+            existing_ids = {t["id"] for t in
+                            (get_playlist(existing[name], cfg) or {}).get("tracks", [])}
+            add = [i for i in ids if i not in existing_ids]
+            if add:
+                playlist_add_tracks(existing[name],
+                                    [track_meta[i] for i in add], cfg)
+                merged += 1
+            else:
+                skipped += 1
+        else:
+            pid = create_playlist(name, pl.get("description") or "",
+                                  pl.get("kind") or "user", cfg)
+            if ids:
+                playlist_add_tracks(pid, [track_meta[i] for i in ids], cfg)
+            existing[name] = pid
+            created += 1
+    for key, value in (data.get("settings") or {}).items():
+        if key in _PUBLIC_SAFE:
+            set_setting(key, value, cfg)
+    return {"playlists_created": created, "playlists_merged": merged,
+            "playlists_unchanged": skipped}
 
 
 # ---------------------------------------------------------------- playlists

@@ -33,6 +33,23 @@
   you don't want, and it becomes a real OSMP playlist. Paste the same link
   into Search or Radio and you're routed to the importer automatically.
   Big sources are capped at the first 500 uploads.
+- **Synced lyrics** — time-aligned lyrics from LRCLIB (free, keyless) with
+  karaoke-style highlighting that follows playback; click any line to jump
+  there. Plain un-timed lyrics render too, and results are cached on the
+  server (misses are retried weekly).
+- **Stats & Made-for-you** — a dashboard of what you listen to: plays and
+  minutes by day (with streaks), your listening clock, top artists and
+  tracks, plus a full play journal. Home turns your top artists into
+  one-click radio mixes.
+- **Artist pages** — every artist name (in lists, the player, stats) opens a
+  page with everything you have by them, play counts, shuffle, radio and
+  bulk download.
+- **Equalizer, visualizer & speed** — a three-band Web Audio EQ with presets
+  (bass boost, vocal, rock…), a frequency-bar visualizer in the now-playing
+  view, and playback speed from 0.75× to 2× (pitch-preserved).
+- **Backups** — one click exports your playlists and library metadata as a
+  JSON file; import merges it into any instance. Accounts and keys never
+  leave the server.
 - **Optional AI curator** — plug in any OpenAI-compatible endpoint
   (OpenAI, OpenRouter, Groq, Ollama, LM Studio…) and describe a vibe in plain
   words; the LLM designs the tracklist, OSMP resolves every pick.
@@ -51,6 +68,8 @@
 |---|---|
 | ![home](docs/screenshots/01-home.png) | ![radio](docs/screenshots/07-radio.png) |
 | ![import](docs/screenshots/09-import.png) | ![now playing](docs/screenshots/06-now-playing.png) |
+| ![stats](docs/screenshots/16-stats.png) | ![lyrics](docs/screenshots/18-lyrics.png) |
+| ![artist](docs/screenshots/17-artist.png) | ![history](docs/screenshots/20-history.png) |
 
 ## The three surfaces
 
@@ -157,6 +176,10 @@ bash scripts/build_android.sh
 
 # headless UI test-suite (Playwright, real YouTube, screenshots)
 python3 scripts/ui_test.py
+
+# API test-suite for lyrics/stats/mixes/artists/history/backup (needs a
+# running server + admin account; defaults match the dev server)
+python3 scripts/api_test.py [base_url] [admin_user] [admin_pass]
 ```
 
 ## Configuration
@@ -170,6 +193,8 @@ Everything lives in the Settings view (or `~/.local/share/osmp/osmp.db`):
 | Updates | Optional GitHub token (private repos); check / update / yt-dlp refresh |
 | Accounts | Admin-managed users; listeners get their own history (Settings → Accounts) |
 | Stream format | `auto` / `m4a` (max compatibility) / `opus` (best quality) |
+| Sound | 3-band equalizer with presets (per-device, applies live) |
+| Backup & restore | Export/import the library as JSON (admin) |
 
 ### Account recovery
 
@@ -195,7 +220,9 @@ itself, and the page reconnects automatically. Source installs track
 If the repo is private, paste a GitHub token once — it is stored server-side
 only. Android updates by installing the latest APK from the Releases page.
 
-Keyboard: `Space` play/pause · `Shift+←/→` prev/next · `M` mute.
+Keyboard: `Space` play/pause · `Shift+←/→` prev/next · `L` lyrics ·
+`S` shuffle · `Q` queue · `M` mute · `.`/`,` speed up/reset · `/` search ·
+`?` all shortcuts.
 
 ## Architecture
 
@@ -209,13 +236,18 @@ Keyboard: `Space` play/pause · `Shift+←/→` prev/next · `M` mute.
 │  /api/search /api/stream /api/library /api/playlists        │
 │  /api/radio/generate (recommendation-graph algorithm)       │
 │  /api/radio/llm (optional OpenAI-compatible curator)        │
+│  /api/lyrics /api/stats /api/mixes /api/artist(s)           │
+│  /api/history/log /api/backup (library export/import)       │
 └─────────────────────────────────────────────────────────────┘
 Android adds: native download store + offline.osmp.local interception,
 wake lock, MediaSession notification.
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the deep dive
-(stream proxying, radio shaping, offline interception, packaging).
+(stream proxying, radio shaping, offline interception, packaging),
+[docs/API.md](docs/API.md) for the REST surface,
+[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) for operations, and
+[docs/FAQ.md](docs/FAQ.md) for the usual questions.
 
 ## Disclaimer
 

@@ -242,6 +242,72 @@ export async function removeDownload(track, buttonEl = null) {
   }
 }
 
+// ── batch download ───────────────────────────────────────────────────
+// Downloads a batch of tracks to the SERVER library, one job at a time so a
+// playlist doesn't stampede yt-dlp. Already-offline tracks are skipped.
+
+export async function downloadAllTracks(tracks, { onProgress } = {}) {
+  const b = bridge();
+  const todo = (tracks || []).filter(t => !isTrackOffline(t));
+  if (!todo.length) {
+    toast('All set — every track is already downloaded', { icon: 'download-check' });
+    return { done: 0, failed: 0 };
+  }
+  if (b && b.downloadTrack) {
+    // Android native downloads manage their own queue
+    todo.forEach(t => {
+      try {
+        b.downloadTrack(t.id, streamUrl({ ...t, offline: false }),
+          t.title || '', t.artist || '');
+      } catch { /* native side reports failures via state */ }
+    });
+    toast(`Downloading ${todo.length} tracks to this device`, { icon: 'download' });
+    return { done: todo.length, failed: 0 };
+  }
+
+  let done = 0, failed = 0;
+  toast(`Downloading ${todo.length} tracks — one at a time, in order`, {
+    icon: 'download', timeout: 6000,
+  });
+  for (const t of todo) {
+    try {
+      setProgress(t.id, { status: 'queued', progress: 0 });
+      const res = await api.download(t.id, t.title, t.artist);
+      if (res && res.already) {
+        markOffline(t.id, true);
+        setProgress(t.id, { status: 'done', progress: 1 });
+      } else {
+        await new Promise((resolve) => {
+          const tick = setInterval(async () => {
+            let stop = false;
+            try {
+              const job = await api.jobStatus(res.job_id);
+              setProgress(t.id, { status: job.status, progress: job.progress || 0 });
+              if (job.status === 'done') {
+                markOffline(t.id, true);
+                stop = true;
+              } else if (job.status === 'error') {
+                stop = true;
+              }
+            } catch { stop = true; }
+            if (stop) { clearInterval(tick); resolve(); }
+          }, 900);
+        });
+      }
+      if ((get('downloads').get(t.id) || {}).status === 'done') done++;
+      else failed++;
+    } catch {
+      failed++;
+      setProgress(t.id, { status: 'error' });
+    }
+    onProgress?.(done + failed, todo.length);
+  }
+  if (failed && done) toastErr(`Downloaded ${done}, but ${failed} failed`);
+  else if (failed) toastErr(`Downloads failed — is the server's ffmpeg installed?`);
+  else toastOk(`Downloaded ${done} tracks`, { icon: 'download-check' });
+  return { done, failed };
+}
+
 export function isTrackOffline(track) {
   if (!track) return false;
   const b = bridge();
@@ -405,6 +471,7 @@ export function openSleepDialog() {
           </div>
         </div>
         <button class="btn ghost block" id="sl-eot">${icon('music', 15)} End of current track</button>
+        <button class="btn ghost block" id="sl-eoq">${icon('queue', 15)} End of queue</button>
         ${s.mode !== 'off' ? '<button class="btn danger block" id="sl-clear">Clear timer</button>' : ''}`,
     }, (root, close) => {
       const rem = root.querySelector('#sl-rem');
@@ -425,6 +492,7 @@ export function openSleepDialog() {
         if (v > 0) player.setSleepMinutes(v);
       });
       root.querySelector('#sl-eot').onclick = done(() => player.setSleepEndOfTrack());
+      root.querySelector('#sl-eoq').onclick = done(() => player.setSleepEndOfQueue());
       root.querySelector('#sl-clear')?.addEventListener('click', done(() => player.clearSleep()));
     });
   });
@@ -520,4 +588,32 @@ export function initActions() {
   sub('library', () => {
     // sync offline flags into queue/current for UI correctness
   });
+}
+
+// ── keyboard shortcuts help ─────────────────────────────────────────
+
+export function showShortcutsHelp() {
+  const row = (keys, what) => `
+    <div class="kb-row">
+      <span class="kb-keys">${keys.split(' / ').map(k => `<kbd>${k}</kbd>`).join('')}</span>
+      <span class="kb-what">${what}</span>
+    </div>`;
+  customDialog({
+    title: 'Keyboard shortcuts',
+    bodyHtml: `
+      <div class="kb-list">
+        ${row('Space', 'Play / pause')}
+        ${row('Shift + →', 'Next track')}
+        ${row('Shift + ←', 'Previous track')}
+        ${row('← / →', 'Seek 5 s (on the progress bar)')}
+        ${row('L', 'Lyrics')}
+        ${row('S', 'Shuffle on / off')}
+        ${row('Q', 'Queue')}
+        ${row('M', 'Mute')}
+        ${row('. / ,', 'Playback speed up / reset')}
+        ${row('/', 'Jump to search')}
+        ${row('Esc', 'Close overlays and menus')}
+      </div>`,
+    confirmLabel: 'Got it',
+  }, () => {});
 }
