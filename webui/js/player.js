@@ -80,6 +80,18 @@ export function jumpTo(queueIdx) {
   startAtOrder(pos >= 0 ? pos : 0);
 }
 
+// Always report the full media state to the Android notification: a
+// payload with only `playing` used to wipe the title/artist there.
+function notifyMediaState(playingOverride) {
+  const t = get('current');
+  bridge()?.notifyMedia?.(safeJson({
+    title: t?.title || '',
+    artist: t?.artist || '',
+    cover: t ? thumbUrl(t) : '',
+    playing: playingOverride !== undefined ? playingOverride : !!get('playing'),
+  }));
+}
+
 function startAtOrder(pos) {
   const q = get('queue');
   if (pos < 0 || pos >= order.length || !q.length) return;
@@ -103,10 +115,7 @@ function startAtOrder(pos) {
   updateNowPlayingUi();
   document.getElementById('player-bar').classList.remove('hidden');
   api.history(track.id);
-  bridge()?.notifyMedia?.(safeJson({
-    title: track.title, artist: track.artist,
-    cover: thumbUrl(track), playing: true,
-  }));
+  notifyMediaState(true);
   try { bridge()?.setWakeLock?.(true); } catch { /* no bridge */ }
   saveState();
 }
@@ -122,7 +131,7 @@ export function toggle() {
   if (st.playing) {
     a.pause();
     set({ playing: false });
-    bridge()?.notifyMedia?.(safeJson({ playing: false }));
+    notifyMediaState(false);
   } else {
     // resume — re-resolve if the src failed previously
     if (!a.src || a.error) {
@@ -130,7 +139,7 @@ export function toggle() {
     }
     a.play().catch(() => toastErr('Playback failed — try again'));
     set({ playing: true });
-    bridge()?.notifyMedia?.(safeJson({ playing: true }));
+    notifyMediaState(true);
   }
   updatePlayButton();
   saveState();
@@ -349,7 +358,7 @@ function fadeOutAndPause() {
       a.volume = restoreVolume; // restore for next manual play
       restoreVolume = null;
       fadeVolume = null;
-      bridge()?.notifyMedia?.(safeJson({ playing: false }));
+      notifyMediaState(false);
     }
   };
   tick();
@@ -377,7 +386,7 @@ function updatePlayButton() {
   void el.play.offsetWidth; // restart animation
   el.play.classList.add('spin-in');
   document.querySelectorAll('.eqbars').forEach(eq => eq.classList.toggle('paused', !playing));
-  bridge()?.notifyMedia?.(safeJson({ playing }));
+  notifyMediaState();
 }
 
 function updateRepeatButton() {

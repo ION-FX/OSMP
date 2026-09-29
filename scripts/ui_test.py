@@ -57,6 +57,18 @@ def main():
               "admin" in (page.text_content("#user-name") or ""))
         shot(page, "01-home")
 
+        # stub the Android bridge so media-notification payloads are observable
+        page.evaluate("""() => {
+          window.__mediaCalls = [];
+          window.OsmpBridge = {
+            notifyMedia: (s) => window.__mediaCalls.push(s),
+            isDownloaded: () => false,
+            notifyDownload: () => {},
+            setWakeLock: () => {},
+            notifyPlaying: () => {},
+          };
+        }""")
+
         # ── accounts: add + remove a user (admin) ────────────
         page.click("#btn-settings")
         page.wait_for_selector("#st-accounts", timeout=8000)
@@ -156,6 +168,18 @@ def main():
         page.click("#pb-play")  # resume
         time.sleep(0.4)
         check("controls: resume works", not page.evaluate("document.getElementById('audio-el').paused"))
+
+        # v0.5.2: the Android notification must never lose its metadata —
+        # every bridge payload (including play/pause toggles) carries a title
+        mstate = page.evaluate("""() => {
+          const calls = (window.__mediaCalls || []).map(s => JSON.parse(s));
+          return { n: calls.length,
+                   noTitle: calls.filter(c => !c.title).length,
+                   last: calls[calls.length - 1] || {} };
+        }""")
+        check("media: every notification payload has a title",
+              mstate["n"] >= 3 and mstate["noTitle"] == 0 and bool(mstate["last"].get("artist")),
+              str(mstate))
 
         # repeat cycle
         page.click("#pb-repeat"); time.sleep(0.2)

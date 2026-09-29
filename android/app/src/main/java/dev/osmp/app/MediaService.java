@@ -36,16 +36,34 @@ public class MediaService extends Service {
     private static MediaService instance;
     private static MainActivity host;          // set by update()
     private static JSONObject lastState;
+    private static String lastTitle = "", lastArtist = "", lastCover = "";
 
     private MediaSession session;
     private final ExecutorService artPool = Executors.newSingleThreadExecutor();
 
     public static void update(Context ctx, JSONObject state) {
         if (ctx instanceof MainActivity) host = (MainActivity) ctx;
-        lastState = state;
+        lastState = mergeState(state);
         Intent i = new Intent(ctx, MediaService.class);
         if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i);
         else ctx.startService(i);
+    }
+
+    /** Fill missing fields from the last known state — a payload carrying
+     * only `playing` must never wipe the title/artist off the notification. */
+    private static JSONObject mergeState(JSONObject st) {
+        try {
+            String t = st.optString("title", "");
+            String ar = st.optString("artist", "");
+            String c = st.optString("cover", "");
+            if (!t.isEmpty()) lastTitle = t;
+            if (!ar.isEmpty()) lastArtist = ar;
+            if (!c.isEmpty()) lastCover = c;
+            if (t.isEmpty()) st.put("title", lastTitle.isEmpty() ? "OSMP" : lastTitle);
+            if (ar.isEmpty()) st.put("artist", lastArtist);
+            if (c.isEmpty()) st.put("cover", lastCover);
+        } catch (Exception ignored) { }
+        return st;
     }
 
     public static void stop(Context ctx) {
@@ -120,7 +138,9 @@ public class MediaService extends Service {
                 if (bmp == null) return;
                 android.os.Handler h = new android.os.Handler(getMainLooper());
                 h.post(() -> {
-                    if (instance == null) return;
+                    // the track changed while we were fetching — this art is
+                    // stale and would repaint the notification with old text
+                    if (instance == null || st != lastState) return;
                     try {
                         session.setMetadata(new MediaMetadata.Builder()
                                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)

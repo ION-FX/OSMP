@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.5.2 — 2026-09-29
+
+Android notification fix.
+
+### Fixed
+- **The media notification now keeps showing the current track.** It used
+  to drop the title/artist ("just says OSMP") the moment playback started,
+  because some client updates reported only the playing flag and the
+  notification rebuilt itself with empty metadata. The web player now
+  always reports the full state (title, artist, cover, playing), and the
+  Android service merges partial payloads with the last known state as
+  belt-and-braces for cached older UIs.
+- A slow cover-art download could repaint the notification with the
+  *previous* track's title after you skipped. Stale art results are now
+  discarded when the track changed meanwhile.
 ## v0.5.1 — 2026-09-29
 
 Playback resilience fix.
