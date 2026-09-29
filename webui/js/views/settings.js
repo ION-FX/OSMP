@@ -87,6 +87,24 @@ export async function mount(root) {
       </div>
     </section>
 
+    <section class="section" id="st-scan-sec">
+      <div class="section-head-row"><h2>${icon('upload', 19)} &nbsp;Import your collection</h2></div>
+      <div class="card" style="cursor:default">
+        <p class="dim" style="font-size:13px;margin-bottom:14px">
+          Point OSMP at a folder on this machine — every audio file inside (mp3, m4a, flac,
+          ogg, opus, wav…) is <strong>copied</strong> into your library with tags and cover art
+          read automatically. Nothing is moved or deleted from the source folder; big
+          collections can take a minute.
+        </p>
+        <div class="row gap-m" style="flex-wrap:wrap">
+          <input class="input mono" id="st-scan-path" placeholder="/home/you/Music"
+                 style="max-width:380px" spellcheck="false">
+          <button class="btn primary" id="st-scan-go">${icon('upload', 15)} Scan folder</button>
+        </div>
+        <div id="st-scan-result" style="margin-top:12px;font-size:13.5px"></div>
+      </div>
+    </section>
+
     <section class="section" id="st-backup-sec">
       <div class="section-head-row"><h2>${icon('database', 19)} &nbsp;Backup &amp; restore</h2></div>
       <div class="card" style="cursor:default">
@@ -443,6 +461,42 @@ export async function mount(root) {
         });
       };
       paint();
+    }
+  }
+
+  // ── server-folder scan (admin) ────────────────────────────────────
+  {
+    const sec = root.querySelector('#st-scan-sec');
+    if ((cfg.user || {}).role !== 'admin') {
+      sec.remove();
+    } else {
+      const out = root.querySelector('#st-scan-result');
+      const go = root.querySelector('#st-scan-go');
+      root.querySelector('#st-scan-go').onclick = async () => {
+        const path = root.querySelector('#st-scan-path').value.trim();
+        if (!path) { toast('Type a folder path first'); return; }
+        go.disabled = true;
+        out.innerHTML = `<span class="dim">${icon('spinner', 14)} Scanning — this can take a while…</span>`;
+        out.querySelector('svg')?.classList.add('spin');
+        try {
+          const r = await api.scanLibrary(path);
+          const bits = [
+            `<strong>${r.imported}</strong> imported`,
+            r.duplicates ? `${r.duplicates} already there` : '',
+            r.errors?.length ? `${r.errors.length} failed` : '',
+          ].filter(Boolean).join(' · ');
+          out.innerHTML = `<span style="color:hsl(140 70% 55%)">✓</span> ${bits} <span class="faint">(scanned ${r.scanned} files)</span>`;
+          if (r.errors?.length) {
+            out.innerHTML += `<div class="faint" style="margin-top:6px;font-size:12px">${r.errors.slice(0, 5).map(escapeHtml).join('<br>')}</div>`;
+          }
+          if (r.imported) toastOk(`Imported ${r.imported} tracks`, { icon: 'upload' });
+        } catch (e) {
+          out.textContent = '';
+          toastErr(e.detail || 'Scan failed');
+        } finally {
+          go.disabled = false;
+        }
+      };
     }
   }
 

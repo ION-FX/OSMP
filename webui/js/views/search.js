@@ -112,17 +112,29 @@ export async function mount(root, params) {
     abortCtl?.abort();
     abortCtl = new AbortController();
     try {
-      const data = await api.search(q, 24);
+      const [data, mine] = await Promise.all([api.search(q, 24), localMatches(q)]);
       rememberTracks(data.results);
+      rememberTracks(mine);
       results.innerHTML = `
+        ${mine.length ? `
+          <div class="section-head-row">
+            <h2>From your library</h2>
+            <span class="faint" style="font-size:12.5px">${mine.length} of your track${mine.length === 1 ? '' : 's'}</span>
+          </div>
+          <div id="sr-mine" style="margin-bottom:26px"></div>` : ''}
         <div class="section-head-row">
           <h2>Results for “${escapeHtml(q)}”</h2>
           <span class="faint" style="font-size:12.5px">${data.results.length} tracks</span>
         </div>
         <div id="sr-list"></div>`;
-      if (!data.results.length) {
+      if (mine.length) renderTracklist(results.querySelector('#sr-mine'), mine, {});
+      if (!data.results.length && !mine.length) {
         results.querySelector('#sr-list').innerHTML =
           `<div class="empty"><h3>No results</h3><p>Try different words, or search by artist + title.</p></div>`;
+        return;
+      }
+      if (!data.results.length) {
+        results.querySelector('#sr-list').innerHTML = '';
         return;
       }
       renderTracklist(results.querySelector('#sr-list'), data.results, {});
@@ -131,6 +143,22 @@ export async function mount(root, params) {
       results.innerHTML = '';
       toastErr(e.detail || 'Search failed');
     }
+  }
+
+  // your own uploads match too — the library list is cached for a minute
+  let libCache = null;
+  let libCacheAt = 0;
+  async function localMatches(q) {
+    if (!libCache || Date.now() - libCacheAt > 60000) {
+      try {
+        libCache = (await api.library(false)).tracks;
+        libCacheAt = Date.now();
+      } catch { libCache = []; }
+    }
+    const ql = q.toLowerCase();
+    return libCache.filter(t =>
+      (t.title || '').toLowerCase().includes(ql) ||
+      (t.artist || '').toLowerCase().includes(ql)).slice(0, 5);
   }
 
   input.addEventListener('input', () => {

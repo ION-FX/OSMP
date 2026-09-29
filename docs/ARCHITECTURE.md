@@ -11,6 +11,7 @@ server/          Python package (FastAPI). The only server code.
     radio.py     recommendation-graph playlist generation
     llm.py       OpenAI-compatible curator client
     lyrics.py    LRCLIB client + LRC parser (SQLite-cached)
+    upload.py    your-own-music imports (multipart + folder scan, mutagen)
     db.py        SQLite (WAL, thread-local connections)
     auth.py      accounts/sessions (scrypt, cookie + bearer)
     update.py    self-update (source/AppImage) + yt-dlp refresh
@@ -97,6 +98,19 @@ The analyser is a dead-end tap, so visualizing with a flat EQ changes
 nothing. If the context suspends (backgrounding), the player resumes it on
 every `playing` event — a suspended context means total silence once the
 graph exists.
+
+## Own-music imports (`upload.py`)
+
+Uploads stream to a temp file, get validated by extension, then move into
+`data/library/` under a fresh `local_`-prefixed id (never collides with
+YouTube ids). Mutagen reads title/artist/album/duration (easy layer —
+normalized across ID3/MP4/Vorbis) and the embedded front cover, which is
+written to `data/covers/{id}.jpg` and served by `/api/art/{id}`. Result:
+the track has `file_path` set, so the *existing* library pipeline serves
+it (`/api/library/stream`), marks it offline-capable, and includes it in
+playlists/stats/artists with zero special-casing. Folder scans copy
+(never move), cap at 2,000 files, and dedupe by duration+size+title so
+re-scans are idempotent.
 
 ## Stats (`db.py` + `views/stats.js`)
 

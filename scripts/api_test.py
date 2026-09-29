@@ -179,6 +179,86 @@ def main():
           stg.get("llm_api_key") in ("", "***set***", None)
           and stg.get("github_token") in ("", "***set***", None))
 
+    # ── uploads (your own music) ───────────────────────────────────
+
+    def synth_mp3(name: str, title: str, artist: str) -> bytes:
+        """Minimal tagged mp3 via ffmpeg (server VM has it at ~/tools)."""
+        import subprocess, tempfile, os
+        ff = os.path.expanduser("~/tools/ffmpeg/bin/ffmpeg")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, name)
+            subprocess.run([ff, "-y", "-loglevel", "error",
+                            "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                            "-metadata", f"title={title}", "-metadata", f"artist={artist}",
+                            out], check=True, timeout=60)
+            with open(out, "rb") as fh:
+                return fh.read()
+
+    mp3 = synth_mp3("apitest.mp3", "API Upload One", "API Tester")
+    import urllib.request as _u
+    boundary = "----osmpapitest"
+    body = (f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"file\"; filename=\"api one.mp3\"\r\n"
+            f"Content-Type: audio/mpeg\r\n\r\n").encode() + mp3 + f"\r\n--{boundary}--\r\n".encode()
+    r = _u.Request(api.base + "/api/upload", data=body, method="POST")
+    r.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    r.add_header("Authorization", "Bearer " + api.token)
+    with _u.urlopen(r, timeout=60) as resp:
+        up = json.loads(resp.read())
+    t = up["track"]
+    check("upload: accepted", up.get("ok") is True)
+    check("upload: tags parsed",
+          t["title"] == "API Upload One" and t["artist"] == "API Tester")
+    check("upload: local source + duration", t["source"] == "local"
+          and 1 < (t["duration"] or 0) < 4 and t["offline"] is True)
+    upid = t["id"]
+
+    # duplicate → 409
+    r2 = _u.Request(api.base + "/api/upload", data=body, method="POST")
+    r2.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    r2.add_header("Authorization", "Bearer " + api.token)
+    try:
+        _u.urlopen(r2, timeout=60)
+        check("upload: duplicate rejected", False)
+    except urllib.error.HTTPError as e:
+        check("upload: duplicate rejected", e.code == 409)
+    # non-audio → 400
+    r3 = _u.Request(api.base + "/api/upload",
+                    data=(f"--{boundary}\r\n"
+                          f"Content-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\n\r\n"
+                          f"hello\r\n--{boundary}--\r\n").encode(), method="POST")
+    r3.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    r3.add_header("Authorization", "Bearer " + api.token)
+    try:
+        _u.urlopen(r3, timeout=30)
+        check("upload: rejects non-audio", False)
+    except urllib.error.HTTPError as e:
+        check("upload: rejects non-audio", e.code == 400)
+
+    # art endpoint + stream + range
+    art = api.req("GET", f"/api/art/{upid}")
+    check("upload: art 404 without cover", art.get("__status") == 404)
+    st = api.req("GET", f"/api/library/stream/{upid}", raw=True)
+    check("upload: streams from disk", len(st) == len(mp3) or len(st) > 1000)
+    # delete removes uploaded tracks entirely
+    dl = api.req("DELETE", f"/api/library/{upid}")
+    check("upload: delete removes track", dl.get("removed") == "track"
+          and api.req("GET", f"/api/track/{upid}").get("__status") == 404)
+
+    # scan guard: listener 403, bad dir 400
+    listener = Api(BASE)
+    api.req("POST", "/api/users", {"username": "apitest_scan",
+                                   "password": "test1234", "role": "user"})
+    listener = Api(BASE)
+    listener.login("apitest_scan", "test1234")
+    check("upload: scan needs admin",
+          listener.req("POST", "/api/upload/scan", {"path": "/tmp"}).get("__status") == 403)
+    check("upload: scan bad dir 400",
+          api.req("POST", "/api/upload/scan", {"path": "/nonexistent-dir"}).get("__status") == 400)
+    users = api.req("GET", "/api/users")["users"]
+    sid = next(u["id"] for u in users if u["username"] == "apitest_scan")
+    api.req("DELETE", f"/api/users/{sid}")
+
     # ── guards ────────────────────────────────────────────────────
     anon = Api(BASE)
     for path, label in (("/api/stats?days=7", "stats"),

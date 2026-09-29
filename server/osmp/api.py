@@ -10,12 +10,12 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Cookie, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, db, llm, lyrics, radio, update, youtube
+from . import auth, db, llm, lyrics, radio, update, upload, youtube
 from .config import get_config
 
 log = logging.getLogger("osmp.api")
@@ -572,9 +572,13 @@ def library_delete(video_id: str):
         Path(row["file_path"]).unlink(missing_ok=True)
     except OSError as exc:
         raise HTTPException(500, f"delete failed: {exc}")
-    db.set_track_file(video_id, None, None)
     cover = get_config().covers_dir / f"{video_id}.jpg"
     cover.unlink(missing_ok=True)
+    if row.get("source") == "local":
+        # an upload has no YouTube existence to keep — remove the track itself
+        db.delete_track(video_id)
+        return {"ok": True, "removed": "track"}
+    db.set_track_file(video_id, None, None)
     return {"ok": True}
 
 
@@ -934,6 +938,67 @@ def artists_list(q: str = "", limit: int = 60):
         ql = q.lower()
         rows = [r for r in rows if ql in (r["artist"] or "").lower()]
     return {"artists": rows}
+
+
+# --------------------------------------------------------------- uploads
+
+@router.post("/upload")
+async def upload_music(request: Request, file: UploadFile):
+    """One audio file in, one first-class library track out (multipart)."""
+    require_user(request)
+    cfg = get_config()
+    name = file.filename or "upload"
+    ext = Path(name).suffix.lower()
+    if ext not in upload.AUDIO_EXTS:
+        raise HTTPException(400, f"unsupported file type: {ext or '(none)'} — "
+                                 f"try {', '.join(sorted(upload.AUDIO_EXTS))}")
+    tmp = cfg.library_dir / f".up-{uuid.uuid4().hex[:10]}{ext}"
+    size = 0
+    try:
+        with tmp.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > upload.MAX_FILE_BYTES:
+                    raise HTTPException(413, "file too large (400 MB limit)")
+                out.write(chunk)
+        track = await run_in_threadpool(upload.import_file, tmp, cfg)
+    except FileExistsError:
+        raise HTTPException(409, "already in your library")
+    except ValueError as exc:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, str(exc))
+    except HTTPException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return {"ok": True, "track": _track_out(track)}
+
+
+class ScanIn(BaseModel):
+    path: str
+
+
+@router.post("/upload/scan")
+def upload_scan(body: ScanIn, request: Request):
+    """Import every audio file under a server-side directory (copies only)."""
+    require_admin(request)
+    try:
+        # sync def → FastAPI already runs this in its threadpool
+        return upload.scan_directory(body.path)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/art/{track_id}")
+def track_art(track_id: str):
+    """Cover art extracted at upload time (embedded tag image)."""
+    art = get_config().covers_dir / f"{track_id}.jpg"
+    if not art.is_file():
+        raise HTTPException(404, "no art")
+    return FileResponse(art, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 # --------------------------------------------------------------- backup

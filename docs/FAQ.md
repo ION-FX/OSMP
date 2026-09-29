@@ -19,6 +19,13 @@ yt-dlp and you're usually fixed in a minute.
 No telemetry. Outbound calls: YouTube (playback/search/import), LRCLIB
 (lyrics lookups), and GitHub (update checks you trigger). That's it.
 
+**Can I play my own MP3/FLAC collection?**
+Yes — that's first-class since v0.4.0. Upload files from the Library view
+on any device, or (as admin) point Settings → *Import your collection* at
+a folder on the server: everything is copied in with tags and cover art
+read automatically, and it mixes with YouTube tracks in playlists and
+search. Those files are yours; no YouTube involved.
+
 **Can I use it alongside Plex/Jellyfin/Navidrome?**
 Yes — OSMP is self-contained (one port, one SQLite file, one downloads
 folder). Some people point Plex at OSMP's `downloads/` directory for the

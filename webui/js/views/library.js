@@ -3,7 +3,7 @@
 import { api, fmtDurLong, fmtBytes } from '../api.js';
 import { get, set } from '../store.js';
 import { icon } from '../components/icons.js';
-import { toast, toastErr } from '../components/toast.js';
+import { toast, toastOk, toastErr } from '../components/toast.js';
 import { renderTracklist, skeletonTracklist, skeletonCards } from '../components/tracklist.js';
 import { refreshPlaylists, newPlaylistDialog, removeDownload } from '../actions.js';
 import { bridge } from '../player.js';
@@ -13,8 +13,11 @@ export async function mount(root) {
     <div class="view-head">
       <h1>Library</h1>
       <span class="spacer"></span>
+      <button class="btn ghost" id="lb-upload">${icon('upload', 16)} Upload music</button>
       <a class="btn ghost" href="#/import" id="lb-import">${icon('download', 16)} Import from YouTube</a>
       <button class="btn primary" id="lb-new">${icon('plus', 16)} New playlist</button>
+      <input type="file" id="lb-file" class="hidden" multiple
+             accept="audio/*,.mp3,.m4a,.flac,.ogg,.opus,.wav,.aac">
     </div>
 
     <section class="section">
@@ -35,7 +38,7 @@ export async function mount(root) {
 
     <section class="section">
       <div class="section-head-row">
-        <h2>Downloads</h2>
+        <h2>On this server</h2>
         <span class="faint" id="lb-dl-stats" style="font-size:12.5px"></span>
       </div>
       <div id="lb-native-note" class="hidden" style="margin-bottom:12px">
@@ -46,6 +49,33 @@ export async function mount(root) {
   `;
 
   root.querySelector('#lb-new').onclick = () => newPlaylistDialog();
+
+  // your-own-music uploads: sequential, with per-file errors and a summary
+  const fileIn = root.querySelector('#lb-file');
+  root.querySelector('#lb-upload').onclick = () => fileIn.click();
+  fileIn.onchange = async () => {
+    const files = [...fileIn.files];
+    fileIn.value = '';
+    if (!files.length) return;
+    const btn = root.querySelector('#lb-upload');
+    btn.disabled = true;
+    let done = 0, failed = 0, dupes = 0;
+    for (const f of files) {
+      btn.innerHTML = `<span class="spin" style="display:flex">${icon('spinner', 15)}</span> ${done + failed + dupes + 1}/${files.length}`;
+      try {
+        await api.uploadFile(f);
+        done++;
+      } catch (e) {
+        if (e.status === 409) dupes++;
+        else { failed++; toastErr(`${f.name}: ${e.detail || e.message}`); }
+      }
+    }
+    btn.disabled = false;
+    btn.innerHTML = `${icon('upload', 16)} Upload music`;
+    if (done) toastOk(`Uploaded ${done} track${done === 1 ? '' : 's'}`, { icon: 'upload' });
+    if (dupes) toast(`${dupes} already in your library`, { icon: 'info' });
+    await Promise.all([renderDownloads(), renderArtists()]);
+  };
 
   if (bridge()?.isDownloaded) root.querySelector('#lb-native-note').classList.remove('hidden');
 

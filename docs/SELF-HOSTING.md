@@ -53,7 +53,7 @@ Verify: `curl http://127.0.0.1:8543/api/health` → `{"ok": true, …}`.
 | Path (rootless in `~/.local/share/osmp`) | Contents |
 |---|---|
 | `/opt/osmp/server/` | code + venv |
-| `/var/lib/osmp/` | `osmp.db`, `downloads/`, logs |
+| `/var/lib/osmp/` | `osmp.db`, `library/` (downloads **and uploads**), `covers/`, logs |
 | `osmp.service` | system unit (or `~/.config/systemd/user/`) |
 
 ## 3. First-run setup
@@ -92,8 +92,11 @@ cp -a /var/lib/osmp /backup/osmp-$(date +%F)
 ```
 
 - **Migrating servers**: install fresh on the new box, create the admin,
-  import the backup JSON, then rsync `downloads/` if you want the offline
-  library too.
+  import the backup JSON, then rsync `library/` (downloads and uploaded
+  music) and `covers/` — the backup carries metadata, not audio files.
+- **Bulk-importing a collection**: Settings → *Import your collection*
+  (admin) scans any server folder and copies the audio in; or upload files
+  individually from the Library view on any device.
 
 ## 5. Networking
 

@@ -313,6 +313,49 @@ def main():
             check("artist: tracklist", page.locator(".tl-row").count() >= 1)
             shot(page, "17-artist")
 
+        # ── v0.4.0: upload your own music ────────────────────
+        import os as _os
+        import subprocess as _sp
+        import tempfile as _tf
+        _ff = _os.path.expanduser("~/tools/ffmpeg/bin/ffmpeg")
+        if _os.path.isfile(_ff):
+            _updir = _tf.mkdtemp()
+            _upfile = _os.path.join(_updir, "ui upload test.mp3")
+            _sp.run([_ff, "-y", "-loglevel", "error", "-f", "lavfi",
+                     "-i", "sine=frequency=330:duration=2",
+                     "-metadata", "title=UI Upload Test",
+                     "-metadata", "artist=UI Tester", _upfile],
+                    check=True, timeout=60)
+            page.goto(BASE + "/#/library")
+            time.sleep(1.6)
+            page.set_input_files("#lb-file", [_upfile])
+            time.sleep(4)
+            lib_titles = page.locator("#lb-downloads .tl-title").all_text_contents()
+            check("upload: appears in library", "UI Upload Test" in lib_titles)
+            shot(page, "22-upload-library")
+            page.goto(BASE + "/#/search")
+            time.sleep(1.0)
+            page.fill("#sr-input", "UI Upload Test")
+            page.keyboard.press("Enter")
+            time.sleep(3.5)
+            check("upload: searchable as library match",
+                  "UI Upload Test" in (page.locator("#sr-mine").text_content() or ""))
+            cleaned = page.evaluate("""async () => {
+              const lib = await (await fetch('/api/library?offline_only=true',
+                {credentials:'same-origin'})).json();
+              const t = lib.tracks.find(x => x.title === 'UI Upload Test');
+              if (!t) return false;
+              await fetch('/api/library/' + encodeURIComponent(t.id),
+                {method:'DELETE', credentials:'same-origin'});
+              return true;
+            }""")
+            check("upload: cleanup via API", cleaned)
+            # leave the search input so single-key shortcuts work again
+            page.goto(BASE + "/#/library")
+            time.sleep(1.0)
+        else:
+            print("  (ffmpeg not found — skipping upload UI test)")
+
         # ── v0.3.0: lyrics (needs the playing track from earlier) ──
         page.keyboard.press("l")
         page.wait_for_selector("#lyrics-overlay:not(.hidden)", timeout=5000)

@@ -1,6 +1,38 @@
 # Changelog
 
-## v0.3.0 — 2026-09-28
+## v0.4.0 — 2026-09-29
+
+The "your own music" release: OSMP is now a real library, not just a
+YouTube frontend.
+
+### Added
+- **Upload your own music** — any signed-in user can upload MP3/M4A/FLAC/
+  OGG/Opus/WAV/AAC files from the Library view. Tags (title/artist/album/
+  duration) and embedded cover art are read automatically; uploads become
+  first-class tracks that stream through the library pipeline, mix into
+  playlists alongside YouTube tracks, count in stats, and work with
+  "save to this device".
+- **Import a whole folder (server-side, admin)** — Settings → "Import your
+  collection" scans any directory on the server and copies every audio
+  file into the library. Nothing is moved or deleted from the source.
+- Duplicate detection (same duration + size + title) keeps re-uploads and
+  re-scans from doubling your library.
+- Search now shows "From your library" matches above YouTube results.
+- Radio from an uploaded track seeds with its artist + title.
+- Removing an uploaded track removes the track itself (YouTube downloads
+  keep their metadata as before).
+- Cover art endpoint `/api/art/{id}` serves extracted tag images.
+
+### Internals
+- New module `server/osmp/upload.py`; new endpoints `POST /api/upload`
+  (multipart), `POST /api/upload/scan` (admin), `GET /api/art/{id}`.
+- Local tracks use `local_`-prefixed ids so they can never collide with
+  YouTube video ids; deletion of uploads is full-track.
+- Dependency: `python-multipart` (multipart form parsing).
+- Service-worker shell cache v6 → v7. Tests: API suite 39 → 49 checks,
+  UI suite 54 → 57.
+
+## v0.3.0 — 2026-09-28 — 2026-09-28
 
 The "knows your music" release: lyrics, stats, artist pages, sound shaping,
 and backups — plus the shuffle fix everyone hits eventually.

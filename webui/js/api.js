@@ -158,6 +158,24 @@ export const api = {
   artist:        (name) => req(`/api/artist?name=${encodeURIComponent(name)}`),
   artists:       (q = '') => req(`/api/artists?q=${encodeURIComponent(q)}`),
 
+  // uploads (your own music)
+  uploadFile:    (file) => fetch('/api/upload', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: (() => {
+                      const fd = new FormData();
+                      fd.append('file', file, file.name);
+                      return fd;
+                    })(),
+                  }).then(async (res) => {
+                    let data = null;
+                    try { data = await res.json(); } catch { /* empty body */ }
+                    if (!res.ok) throw new ApiError(res.status,
+                      (data && data.detail) || `Upload failed (${res.status})`);
+                    return data;
+                  }),
+  scanLibrary:   (path) => req('/api/upload/scan', { method: 'POST', body: { path } }),
+
   // backup (admin)
   backupRestore: (data) => req('/api/backup/restore', { method: 'POST', body: { data } }),
 

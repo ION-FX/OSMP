@@ -90,6 +90,22 @@ server-side (hits 90 days, misses retried after a week); network failures
 are not cached. Metadata is resolved from the library cache first, then
 live via yt-dlp.
 
+## Your own music (uploads)
+
+| Route | Notes |
+|---|---|
+| `POST /upload` | multipart `file` field; mp3/m4a/flac/ogg/opus/wav/aac. Tags and embedded art are read server-side; duplicates answer `409`. Returns `{ok, track}` |
+| `POST /upload/scan` | admin. `{path}` — copies every audio file under a server-side directory into the library (never moves/deletes). Returns counts + first 500 imported tracks |
+| `GET /art/{track_id}` | the cover extracted at upload time; `404` when none |
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -F "file=@song.mp3" $OSMP/api/upload
+```
+
+Uploaded tracks have `source: "local"` and ids like `local_ab12…`. They
+stream via `/api/library/stream/{id}` like any download; deleting one
+removes the track entirely.
+
 ## Stats, mixes, history
 
 | Route | Notes |

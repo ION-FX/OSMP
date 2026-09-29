@@ -72,7 +72,7 @@ export function renderTracklist(host, tracks, opts = {}) {
       <span class="tl-album ellipsis"></span>
       <span class="tl-dur">${fmtTime(t.duration)}</span>
       <span class="tl-actions">
-        <button class="icon-btn sm act-dl" data-dl-track="${t.id}" title="${isTrackOffline(t) ? 'Remove download' : 'Download'}"></button>
+        <button class="icon-btn sm act-dl" data-dl-track="${t.id}" title="${isTrackOffline(t) ? (t.source === 'local' ? 'Remove from library' : 'Remove download') : 'Download'}"></button>
         <button class="icon-btn sm act-more act-extra" title="More"></button>
       </span>`;
     row.querySelector('.tl-title').textContent = t.title || t.id;

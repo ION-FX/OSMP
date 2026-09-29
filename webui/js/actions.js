@@ -506,6 +506,7 @@ export function showTrackMenu(x, y, track, extra = {}) {
   closeTrackMenu();
   const menu = document.getElementById('ctx-menu');
   const offline = isTrackOffline(track);
+  const isLocal = track.source === 'local';
   const dev = !bridge() && 'caches' in window;
   const devSaved = isDeviceOffline(track);
   menu.innerHTML = `
@@ -514,11 +515,11 @@ export function showTrackMenu(x, y, track, extra = {}) {
     <button class="ctx-item" data-a="queue">${icon('list', 16)} Add to queue</button>
     <div class="ctx-sep"></div>
     <button class="ctx-item" data-a="playlist">${icon('playlist-plus', 16)} Add to playlist…</button>
-    <button class="ctx-item" data-a="download">${icon(offline ? 'trash' : 'download', 16)} ${offline ? 'Remove download' : 'Download'}</button>
+    <button class="ctx-item" data-a="download">${icon(offline ? 'trash' : 'download', 16)} ${offline ? (isLocal ? 'Remove from library' : 'Remove download') : 'Download'}</button>
     ${dev ? `<button class="ctx-item" data-a="device">${icon(devSaved ? 'trash' : 'download', 16)} ${devSaved ? 'Remove from this device' : 'Save to this device'}</button>` : ''}
     <button class="ctx-item" data-a="radio">${icon('radio', 16)} Start radio from this</button>
     <div class="ctx-sep"></div>
-    <button class="ctx-item" data-a="copy">${icon('link', 16)} Copy YouTube link</button>
+    ${isLocal ? '' : `<button class="ctx-item" data-a="copy">${icon('link', 16)} Copy YouTube link</button>`}
     ${extra.remove ? `<button class="ctx-item danger" data-a="remove">${icon('close', 16)} Remove from this playlist</button>` : ''}
   `;
   menu.classList.remove('hidden');
@@ -534,7 +535,12 @@ export function showTrackMenu(x, y, track, extra = {}) {
     playlist: () => addToPlaylistDialog(track),
     download: () => offline ? removeDownload(track) : downloadTrack(track),
     device: () => devSaved ? removeDeviceOffline(track) : saveToDevice(track),
-    radio: () => { location.hash = `#/radio?seed=${encodeURIComponent(track.id)}`; },
+    radio: () => {
+      // uploads have no YouTube id — seed the radio with their name instead
+      const seed = track.source === 'local'
+        ? `${track.artist || ''} ${track.title || ''}`.trim() : track.id;
+      location.hash = `#/radio?seed=${encodeURIComponent(seed)}`;
+    },
     copy: () => {
       const url = `https://www.youtube.com/watch?v=${track.id}`;
       navigator.clipboard?.writeText(url).then(

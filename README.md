@@ -18,6 +18,10 @@
 
 - **Self-hosted** — one small Python server on your machine/NAS; every client
   talks to it. No accounts, no cloud, no telemetry.
+- **Your own music, too** — upload MP3/FLAC/M4A/… files (or point OSMP at a
+  folder on the server) and they become first-class tracks: tagged, with
+  embedded cover art, searchable, and mixable into playlists right next to
+  YouTube results.
 - **YouTube as your catalog** — search anything on YouTube and play the audio
   stream instantly (server-side proxy with full seeking support).
 - **True offline** — download tracks server-side into your library, or
