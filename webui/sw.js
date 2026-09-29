@@ -3,7 +3,7 @@
  * dedicated cache: full (non-Range) fetches are stored, and when the server
  * is down cached tracks are served so saved music keeps playing. */
 
-const CACHE = 'osmp-shell-v7';
+const CACHE = 'osmp-shell-v8';
 const AUDIO_CACHE = 'osmp-audio-v1';
 const SHELL = [
   '/',
@@ -31,6 +31,7 @@ const SHELL = [
   '/js/views/search.js',
   '/js/views/library.js',
   '/js/views/playlist.js',
+  '/js/views/smart.js',
   '/js/views/artist.js',
   '/js/views/import.js',
   '/js/views/radio.js',

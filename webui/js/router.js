@@ -9,6 +9,7 @@ const routes = {
   radio:    () => import('./views/radio.js'),
   library:  () => import('./views/library.js'),
   playlist: () => import('./views/playlist.js'),
+  smart:    () => import('./views/smart.js'),
   artist:  () => import('./views/artist.js'),
   import:   () => import('./views/import.js'),
   stats:    () => import('./views/stats.js'),
@@ -26,6 +27,10 @@ export function parseHash() {
   const name = segs[0] || 'home';
   const params = {};
   if (name === 'playlist' && segs[1]) params.id = segs[1];
+  if (name === 'smart') {
+    if (segs[1] && segs[1] !== 'new') params.id = segs[1];
+    params.edit = segs[2] === 'edit';
+  }
   if (name === 'artist' && segs[1]) params.name = decodeURIComponent(segs[1]);
   const query = new URLSearchParams(queryPart || '');
   for (const [k, v] of query) params[k] = v;

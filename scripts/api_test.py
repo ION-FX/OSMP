@@ -259,6 +259,90 @@ def main():
     sid = next(u["id"] for u in users if u["username"] == "apitest_scan")
     api.req("DELETE", f"/api/users/{sid}")
 
+    # ── smart playlists ───────────────────────────────────────────
+    pr = api.req("GET", "/api/smart/presets")
+    check("smart: presets shipped", pr.get("__status") is None and
+          {"most_played", "on_repeat", "recently_added", "deeper_cuts",
+           "your_uploads"} <= {p["key"] for p in pr.get("presets", [])})
+
+    # seed two deterministic local tracks: one played, one never played
+    def upload_named(title, artist):
+        mp3 = synth_mp3(f"{title.replace(' ', '_').lower()}.mp3", title, artist)
+        b = (f"--{boundary}\r\n"
+             f"Content-Disposition: form-data; name=\"file\"; filename=\"{title}.mp3\"\r\n"
+             f"Content-Type: audio/mpeg\r\n\r\n").encode() + mp3 + f"\r\n--{boundary}--\r\n".encode()
+        rq = _u.Request(api.base + "/api/upload", data=b, method="POST")
+        rq.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        rq.add_header("Authorization", "Bearer " + api.token)
+        with _u.urlopen(rq, timeout=60) as resp:
+            return json.loads(resp.read())["track"]
+
+    tA = upload_named("Smart Eval One", "Smart Artist")
+    tB = upload_named("Smart Eval Two", "Other Fellow")
+    api.req("POST", "/api/history", {"track_id": tA["id"]})
+    api.req("POST", "/api/history", {"track_id": tA["id"]})
+
+    ids = lambda sp: {t["id"] for t in api.req("GET", f"/api/smart/{sp['id']}")["tracks"]}
+    sp_plays = api.req("POST", "/api/smart", {"name": "api sm1", "emoji": "✨",
+        "spec": {"match": "all", "rules": [{"field": "plays", "op": "gte", "value": 1}],
+                 "order": "most_played", "limit": 100}})
+    check("smart: create returns summary + count",
+          sp_plays.get("id") and sp_plays.get("summary") and "track_count" in sp_plays)
+    check("smart: plays>=1 rule picks only the played track",
+          tA["id"] in ids(sp_plays) and tB["id"] not in ids(sp_plays))
+
+    sp_never = api.req("POST", "/api/smart", {"name": "api sm2", "emoji": "icon:disc",
+        "spec": {"match": "all", "rules": [{"field": "last_played", "op": "never"}],
+                 "order": "recently_added", "limit": 100}})
+    check("smart: never-played rule picks only the fresh track",
+          tB["id"] in ids(sp_never) and tA["id"] not in ids(sp_never))
+    check("smart: icon cover stored",
+          api.req("GET", f"/api/smart/{sp_never['id']}").get("emoji") == "icon:disc")
+
+    sp_txt = api.req("POST", "/api/smart", {"name": "api sm3", "emoji": "✨",
+        "spec": {"match": "any",
+                 "rules": [{"field": "artist", "op": "contains", "value": "smart art"},
+                           {"field": "plays", "op": "gte", "value": 9999}],
+                 "order": "title", "limit": 100}})
+    check("smart: any-match + text contains", tA["id"] in ids(sp_txt)
+          and tB["id"] not in ids(sp_txt))
+
+    sp_cap = api.req("POST", "/api/smart", {"name": "api sm4", "emoji": "✨",
+        "spec": {"match": "all", "rules": [], "order": "recently_added", "limit": 1}})
+    capped = api.req("GET", f"/api/smart/{sp_cap['id']}")
+    check("smart: limit caps list and count agrees",
+          len(capped["tracks"]) == 1 and capped["track_count"] == 1
+          and capped["tracks"][0]["id"] == tB["id"])
+
+    pv = api.req("POST", "/api/smart/preview",
+                 {"match": "all", "rules": [], "order": "most_played", "limit": 1})
+    check("smart: preview reports pre-limit matches", pv.get("count", 0) >= 2)
+    check("smart: patch updates rules",
+          api.req("PATCH", f"/api/smart/{sp_never['id']}",
+                  {"name": "api sm2b", "emoji": "🔥",
+                   "spec": {"match": "all", "rules": [{"field": "source", "op": "is", "value": "local"}],
+                            "order": "recently_added", "limit": 5}}).get("name") == "api sm2b"
+          and tA["id"] in ids(sp_never))
+    lst = api.req("GET", "/api/smart")
+    check("smart: list includes created", {s2["id"] for s2 in lst["smart"]} >=
+          {sp_plays["id"], sp_never["id"], sp_txt["id"], sp_cap["id"]})
+    for name, bad in (("unknown field", {"match": "all", "rules": [
+                            {"field": "password", "op": "is", "value": "x"}], "limit": 5}),
+                      ("unknown op", {"match": "all", "rules": [
+                            {"field": "plays", "op": "LIKE", "value": 1}], "limit": 5}),
+                      ("bad order", {"match": "all", "rules": [], "order": "DROP TABLE", "limit": 5}),
+                      ("bad limit", {"match": "all", "rules": [], "limit": 99999})):
+        out = api.req("POST", "/api/smart", {"name": "nope", "emoji": "✨", "spec": bad})
+        check(f"smart: rejects {name}", out.get("__status") in (400, 422), str(out)[:80])
+    for sp in (sp_plays, sp_never, sp_txt, sp_cap):
+        api.req("DELETE", f"/api/smart/{sp['id']}")
+    check("smart: delete works", all(
+        api.req("GET", f"/api/smart/{sp['id']}").get("__status") == 404
+        for sp in (sp_plays, sp_never, sp_txt, sp_cap)))
+    for t in (tA, tB):
+        api.req("DELETE", f"/api/library/{t['id']}")
+    check("smart: anon blocked", Api(BASE).req("GET", "/api/smart", auth=False).get("__status") == 401)
+
     # ── guards ────────────────────────────────────────────────────
     anon = Api(BASE)
     for path, label in (("/api/stats?days=7", "stats"),

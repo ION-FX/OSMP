@@ -356,6 +356,57 @@ def main():
         else:
             print("  (ffmpeg not found — skipping upload UI test)")
 
+        # ── v0.5.0: smart playlists ──────────────────────────
+        page.goto(BASE + "/#/library")
+        time.sleep(1.6)
+        check("smart: library section renders",
+              page.locator("#lb-smart-sec").count() == 1)
+        page.click("#lb-new-smart")
+        time.sleep(1.2)
+        check("smart: editor opens", page.locator("#sm-ed-name").count() == 1)
+        page.fill("#sm-ed-name", "UI Smart Test")
+        preset_chips = page.locator("#sm-ed-presets .chip")
+        check("smart: preset chips offered", preset_chips.count() >= 3)
+        preset_chips.first.click()  # Most played
+        time.sleep(0.4)
+        page.click("#sm-ed-addrule")
+        time.sleep(0.6)  # debounce + preview round-trip
+        preview_txt = page.text_content("#sm-ed-preview") or ""
+        check("smart: live preview counts tracks",
+              "track" in preview_txt and any(c.isdigit() for c in preview_txt),
+              preview_txt.strip())
+        shot(page, "23-smart-editor")
+        page.click("#sm-ed-save")
+        page.wait_for_selector("#sm-list", timeout=6000)
+        check("smart: detail view after save",
+              page.evaluate("location.hash").startswith("#/smart/")
+              and "Smart playlist" in (page.text_content(".detail-kind") or ""))
+        check("smart: evaluated tracklist", page.locator("#sm-list .tl-row").count() >= 1)
+        shot(page, "24-smart-detail")
+        # edit: switch preset to Deeper cuts and save
+        page.click("#sm-edit")
+        time.sleep(1.0)
+        page.fill("#sm-ed-name", "UI Smart Test 2")
+        deeper = page.locator("#sm-ed-presets .chip", has_text="Deeper cuts")
+        if deeper.count():
+            deeper.first.click()
+        page.click("#sm-ed-save")
+        page.wait_for_selector("#sm-list", timeout=6000)
+        check("smart: edit persists",
+              "UI Smart Test 2" in (page.text_content("#sm-name") or ""))
+        # play from the smart list (queue gets populated)
+        page.click("#sm-play")
+        time.sleep(1.5)
+        check("smart: play fills queue", page.locator("#pb-play").count() == 1
+              and page.evaluate("!document.getElementById('player-bar').classList.contains('hidden')"))
+        # delete it
+        page.click("#sm-delete")
+        page.wait_for_selector(".modal", timeout=5000)
+        page.click('.modal [data-act="ok"]')
+        time.sleep(1.2)
+        check("smart: delete returns to library",
+              page.evaluate("location.hash").startswith("#/library"))
+
         # ── v0.3.0: lyrics (needs the playing track from earlier) ──
         page.keyboard.press("l")
         page.wait_for_selector("#lyrics-overlay:not(.hidden)", timeout=5000)

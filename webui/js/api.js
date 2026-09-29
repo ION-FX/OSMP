@@ -143,6 +143,16 @@ export const api = {
   importApply:   (preview_id, name, track_ids) =>
     req('/api/import/apply', { method: 'POST', body: { preview_id, name, track_ids } }),
 
+  // smart playlists (rule-based, evaluated server-side)
+  smartPresets:  () => req('/api/smart/presets'),
+  smartList:     () => req('/api/smart'),
+  smartCreate:   (name, spec, emoji = '✨') =>
+    req('/api/smart', { method: 'POST', body: { name, spec, emoji } }),
+  smart:         (id) => req(`/api/smart/${id}`),
+  smartUpdate:   (id, patch) => req(`/api/smart/${id}`, { method: 'PATCH', body: patch }),
+  smartDelete:   (id) => req(`/api/smart/${id}`, { method: 'DELETE' }),
+  smartPreview:  (spec) => req('/api/smart/preview', { method: 'POST', body: spec }),
+
   // radio / llm
   radio:         (seed, count = 25) =>
     req(`/api/radio/generate?seed=${encodeURIComponent(seed)}&count=${count}`),

@@ -79,6 +79,14 @@ CREATE TABLE IF NOT EXISTS lyrics(
   instrumental INTEGER NOT NULL DEFAULT 0,
   fetched_at   REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS smart_playlists(
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  emoji      TEXT NOT NULL DEFAULT '✨',
+  rules_json TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL
+);
 """
 
 _MIGRATIONS = (
@@ -582,6 +590,69 @@ def playlist_reorder(playlist_id: int, ordered_ids: list[str], cfg: Config | Non
                 (pos, playlist_id, tid))
         conn.execute("UPDATE playlists SET updated_at=? WHERE id=?", (time.time(), playlist_id))
     return True
+
+
+# ---------------------------------------------------------------- smart playlists
+
+def query_rows(sql: str, args: list | tuple = (),
+               cfg: Config | None = None) -> list[dict]:
+    """Parameterized read for other modules (smart playlists). The SQL text
+    must come from whitelisted fragments — never from user input."""
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_smart(name: str, rules_json: str, emoji: str = "✨",
+                 cfg: Config | None = None) -> int:
+    cfg = cfg or get_config()
+    now = time.time()
+    with _connect(cfg) as conn:
+        cur = conn.execute(
+            "INSERT INTO smart_playlists(name, emoji, rules_json, created_at, updated_at) "
+            "VALUES(?,?,?,?,?)", (name.strip() or "Untitled", emoji or "✨", rules_json, now, now))
+        return int(cur.lastrowid)
+
+
+def list_smart(cfg: Config | None = None) -> list[dict]:
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            "SELECT * FROM smart_playlists ORDER BY created_at ASC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_smart(sid: int, cfg: Config | None = None) -> dict | None:
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        row = conn.execute("SELECT * FROM smart_playlists WHERE id=?", (sid,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_smart(sid: int, name: str | None = None, rules_json: str | None = None,
+                 emoji: str | None = None, cfg: Config | None = None) -> bool:
+    cfg = cfg or get_config()
+    fields, args = [], []
+    if name is not None:
+        fields.append("name=?"); args.append(name.strip() or "Untitled")
+    if rules_json is not None:
+        fields.append("rules_json=?"); args.append(rules_json)
+    if emoji is not None:
+        fields.append("emoji=?"); args.append(emoji or "✨")
+    if not fields:
+        return False
+    fields.append("updated_at=?"); args.append(time.time()); args.append(sid)
+    with _connect(cfg) as conn:
+        cur = conn.execute(f"UPDATE smart_playlists SET {', '.join(fields)} WHERE id=?", args)
+    return cur.rowcount > 0
+
+
+def delete_smart(sid: int, cfg: Config | None = None) -> bool:
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        cur = conn.execute("DELETE FROM smart_playlists WHERE id=?", (sid,))
+    return cur.rowcount > 0
 
 
 # ---------------------------------------------------------------- settings

@@ -12,6 +12,7 @@ server/          Python package (FastAPI). The only server code.
     llm.py       OpenAI-compatible curator client
     lyrics.py    LRCLIB client + LRC parser (SQLite-cached)
     upload.py    your-own-music imports (multipart + folder scan, mutagen)
+    smart.py     smart-playlist rules → whitelisted, parameterized SQL
     db.py        SQLite (WAL, thread-local connections)
     auth.py      accounts/sessions (scrypt, cookie + bearer)
     update.py    self-update (source/AppImage) + yt-dlp refresh

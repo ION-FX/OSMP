@@ -106,6 +106,49 @@ Uploaded tracks have `source: "local"` and ids like `local_ab12…`. They
 stream via `/api/library/stream/{id}` like any download; deleting one
 removes the track entirely.
 
+## Smart playlists
+
+Rule-based lists evaluated against the track cache on every read — they
+update themselves.
+
+| Route | Notes |
+|---|---|
+| `GET /smart` | all smart playlists with spec, human summary, live `track_count`/`total_duration` |
+| `POST /smart` | `{name, emoji, spec}` — create; invalid rules → `400` |
+| `GET /smart/{id}` | definition + evaluated `tracks` (what playback queues) |
+| `PATCH /smart/{id}` | rename, re-emoji, re-spec |
+| `DELETE /smart/{id}` | remove the rules; tracks/playlists untouched |
+| `POST /smart/preview` | spec only → `{count, seconds, summary}` of everything the rules match (before the limit) — powers the editor's live counter |
+| `GET /smart/presets` | the five built-in starter specs |
+
+Spec shape (fields/ops are whitelisted server-side; values are always bound
+parameters, never SQL text):
+
+```json
+{
+  "match": "all",
+  "rules": [
+    {"field": "plays", "op": "gte", "value": 5},
+    {"field": "last_played", "op": "within", "value": 7},
+    {"field": "source", "op": "is", "value": "local"}
+  ],
+  "order": "most_played",
+  "limit": 50
+}
+```
+
+| Field | Ops | Value |
+|---|---|---|
+| `plays` | `gte` `lte` `eq` | play count |
+| `last_played` / `added` | `within` `before` (`never` on last_played) | days |
+| `duration` | `gte` `lte` | seconds (unknown counts as 0) |
+| `artist` / `title` | `contains` `is` | text |
+| `source` | `is` | `youtube` \| `local` |
+| `offline` | `is` | boolean |
+
+`order`: `most_played` · `recently_played` · `recently_added` · `random` ·
+`title` · `artist`. `limit`: 1–500.
+
 ## Stats, mixes, history
 
 | Route | Notes |

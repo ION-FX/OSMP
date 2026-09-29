@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -15,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, db, llm, lyrics, radio, update, upload, youtube
+from . import auth, db, llm, lyrics, radio, smart, update, upload, youtube
 from .config import get_config
 
 log = logging.getLogger("osmp.api")
@@ -720,6 +721,111 @@ def playlists_reorder(playlist_id: int, body: ReorderIn):
     if not db.get_playlist(playlist_id):
         raise HTTPException(404, "playlist not found")
     db.playlist_reorder(playlist_id, body.order)
+    return {"ok": True}
+
+
+# --------------------------------------------------------------- smart playlists
+
+class SmartRuleIn(BaseModel):
+    field: str
+    op: str
+    value: object = None
+
+
+class SmartSpecIn(BaseModel):
+    match: Literal["all", "any"] = "all"
+    rules: list[SmartRuleIn] = Field(default_factory=list, max_length=12)
+    order: str = "most_played"
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class SmartIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    emoji: str = Field(default="✨", max_length=32)
+    spec: SmartSpecIn
+
+
+class SmartPatch(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    emoji: str | None = Field(default=None, max_length=32)
+    spec: SmartSpecIn | None = None
+
+
+def _smart_out(row: dict) -> dict:
+    """Smart-playlist row → API shape: spec parsed, counts from the *limited*
+    track list so track_count always equals what playback would queue."""
+    try:
+        spec = smart.validate_spec(json.loads(row["rules_json"]))
+    except (ValueError, TypeError):
+        spec = {"match": "all", "rules": [], "order": "most_played", "limit": 50}
+    tracks = smart.evaluate(spec)
+    return {"id": row["id"], "name": row["name"], "emoji": row["emoji"],
+            "spec": spec, "summary": smart.describe(spec),
+            "track_count": len(tracks),
+            "total_duration": sum(t.get("duration") or 0 for t in tracks),
+            "updated_at": row["updated_at"]}
+
+
+@router.get("/smart/presets")
+def smart_presets():
+    return {"presets": smart.PRESETS}
+
+
+@router.get("/smart")
+def smart_list():
+    return {"smart": [_smart_out(r) for r in db.list_smart()]}
+
+
+@router.post("/smart/preview")
+def smart_preview(body: SmartSpecIn):
+    """Live match count for the editor — nothing is stored."""
+    try:
+        spec = smart.validate_spec(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    stats = smart.evaluate_count(spec)
+    stats["summary"] = smart.describe(spec)
+    return stats
+
+
+@router.post("/smart")
+def smart_create(body: SmartIn):
+    try:
+        spec = smart.validate_spec(body.spec.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    sid = db.create_smart(body.name, json.dumps(spec), body.emoji)
+    return _smart_out(db.get_smart(sid))
+
+
+@router.get("/smart/{sid}")
+def smart_get(sid: int):
+    row = db.get_smart(sid)
+    if not row:
+        raise HTTPException(404, "smart playlist not found")
+    out = _smart_out(row)
+    out["tracks"] = [_track_out(t) for t in smart.evaluate(out["spec"])]
+    return out
+
+
+@router.patch("/smart/{sid}")
+def smart_patch(sid: int, body: SmartPatch):
+    if not db.get_smart(sid):
+        raise HTTPException(404, "smart playlist not found")
+    if body.spec is not None:
+        try:
+            spec = smart.validate_spec(body.spec.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        db.update_smart(sid, rules_json=json.dumps(spec))
+    db.update_smart(sid, name=body.name, emoji=body.emoji)
+    return _smart_out(db.get_smart(sid))
+
+
+@router.delete("/smart/{sid}")
+def smart_delete(sid: int):
+    if not db.delete_smart(sid):
+        raise HTTPException(404, "smart playlist not found")
     return {"ok": True}
 
 

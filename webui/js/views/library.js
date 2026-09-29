@@ -6,6 +6,7 @@ import { icon } from '../components/icons.js';
 import { toast, toastOk, toastErr } from '../components/toast.js';
 import { renderTracklist, skeletonTracklist, skeletonCards } from '../components/tracklist.js';
 import { refreshPlaylists, newPlaylistDialog, removeDownload } from '../actions.js';
+import { smartCoverArt } from './smart.js';
 import { bridge } from '../player.js';
 
 export async function mount(root) {
@@ -15,6 +16,7 @@ export async function mount(root) {
       <span class="spacer"></span>
       <button class="btn ghost" id="lb-upload">${icon('upload', 16)} Upload music</button>
       <a class="btn ghost" href="#/import" id="lb-import">${icon('download', 16)} Import from YouTube</a>
+      <button class="btn ghost" id="lb-new-smart" title="A playlist that builds itself from rules">${icon('sparkles', 16)} New smart</button>
       <button class="btn primary" id="lb-new">${icon('plus', 16)} New playlist</button>
       <input type="file" id="lb-file" class="hidden" multiple
              accept="audio/*,.mp3,.m4a,.flac,.ogg,.opus,.wav,.aac">
@@ -26,6 +28,14 @@ export async function mount(root) {
         <span class="faint" id="lb-pl-count" style="font-size:12.5px"></span>
       </div>
       <div class="card-grid" id="lb-playlists"></div>
+    </section>
+
+    <section class="section" id="lb-smart-sec">
+      <div class="section-head-row">
+        <h2>Smart playlists</h2>
+        <span class="faint" id="lb-smart-count" style="font-size:12.5px"></span>
+      </div>
+      <div class="card-grid" id="lb-smart"></div>
     </section>
 
     <section class="section" id="lb-artists-sec">
@@ -49,6 +59,7 @@ export async function mount(root) {
   `;
 
   root.querySelector('#lb-new').onclick = () => newPlaylistDialog();
+  root.querySelector('#lb-new-smart').onclick = () => { location.hash = '#/smart/new'; };
 
   // your-own-music uploads: sequential, with per-file errors and a summary
   const fileIn = root.querySelector('#lb-file');
@@ -79,7 +90,67 @@ export async function mount(root) {
 
   if (bridge()?.isDownloaded) root.querySelector('#lb-native-note').classList.remove('hidden');
 
-  await Promise.all([renderPlaylists(), renderDownloads(), renderArtists()]);
+  await Promise.all([renderPlaylists(), renderSmart(), renderDownloads(), renderArtists()]);
+}
+
+// Smart playlists: rule-based cards + preset quick-adds when there are none yet
+async function renderSmart() {
+  const host = document.getElementById('lb-smart');
+  const countEl = document.getElementById('lb-smart-count');
+  let smart = [];
+  let presets = [];
+  try {
+    [smart, presets] = await Promise.all([
+      api.smartList().then(d => d.smart),
+      api.smartPresets().then(d => d.presets),
+    ]);
+  } catch { /* offline — keep the section empty */ }
+  countEl.textContent = smart.length ? `${smart.length} · auto-updating` : '';
+  host.innerHTML = '';
+  if (!smart.length) {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'grid-column:1/-1';
+    hint.className = 'faint';
+    hint.style.fontSize = '13px';
+    hint.innerHTML = 'Playlists that rebuild themselves from rules. Start from a ready-made one: ';
+    const chips = document.createElement('span');
+    chips.className = 'chip-row';
+    chips.style.display = 'inline-flex';
+    presets.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.innerHTML = `${smartCoverArt(p.emoji, 13)}<span style="margin-left:6px"></span>`;
+      b.querySelector('span').textContent = p.name;
+      b.title = `Create the “${p.name}” smart playlist`;
+      b.onclick = async () => {
+        try {
+          const created = await api.smartCreate(p.name, p.spec, p.emoji);
+          location.hash = `#/smart/${created.id}`;
+        } catch (e) { toastErr(e.detail || 'Create failed'); }
+      };
+      chips.appendChild(b);
+    });
+    hint.appendChild(chips);
+    host.appendChild(hint);
+    return;
+  }
+  smart.forEach(sp => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-cover">
+        <div class="cover-fallback" style="display:flex;align-items:center;justify-content:center;
+          background:linear-gradient(135deg, hsl(${(sp.id * 61 + 130) % 360} 55% 32%), hsl(${(sp.id * 61 + 210) % 360} 65% 48%))">
+          ${smartCoverArt(sp.emoji, 34)}</div>
+        <button class="card-play" title="Open">${icon('play', 18, true)}</button>
+      </div>
+      <div class="card-title ellipsis"></div>
+      <div class="card-sub">${sp.track_count} tracks · auto</div>`;
+    card.querySelector('.card-title').textContent = sp.name;
+    card.title = sp.summary || sp.name;
+    card.onclick = () => { location.hash = `#/smart/${sp.id}`; };
+    host.appendChild(card);
+  });
 }
 
 async function renderArtists() {

@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.5.0 — 2026-09-29
+
+The smart playlist release: lists that maintain themselves.
+
+### Added
+- **Smart playlists** — saved rule sets that rebuild themselves from your
+  library every time you open or play them. Rules combine on play count,
+  last-played/added dates, length, artist/title text, source
+  (YouTube vs uploaded) and downloaded state, matched with all/any logic,
+  then ordered (most played, recently played/added, random, A–Z) and
+  capped (1–500 tracks).
+- **Ready-made presets** — Most played, On repeat, Deeper cuts (never
+  played), Recently added and Your uploads start from one click in the
+  Library view or the editor.
+- **Live match preview** — the editor shows "N tracks match · total time"
+  as you type, computed by the same server-side query the playlist uses.
+- Library view gains a Smart playlists section with auto-updating cards;
+  each playlist has Play / Shuffle / Download all / Edit rules / Delete.
+
+### Internals
+- New module `server/osmp/smart.py` — whitelisted field/op validation and
+  parameterized SQL (user input never becomes SQL text), plus a
+  `smart_playlists` table and `/api/smart` CRUD + `/api/smart/preview` +
+  `/api/smart/presets` endpoints.
+- Evaluation happens on the server, so Android and desktop clients get
+  smart playlists with no client-side logic.
+
 ## v0.4.0 — 2026-09-29
 
 The "your own music" release: OSMP is now a real library, not just a

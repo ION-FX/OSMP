@@ -37,6 +37,11 @@
   you don't want, and it becomes a real OSMP playlist. Paste the same link
   into Search or Radio and you're routed to the importer automatically.
   Big sources are capped at the first 500 uploads.
+- **Smart playlists** — lists that maintain themselves: "On repeat", "Deeper
+  cuts", "Your uploads" and friends start from one click, or build your own
+  from rules (plays, last played, date added, length, artist, source,
+  downloaded) with a live match preview. Evaluated on the server, so every
+  client sees the same list.
 - **Synced lyrics** — time-aligned lyrics from LRCLIB (free, keyless) with
   karaoke-style highlighting that follows playback; click any line to jump
   there. Plain un-timed lyrics render too, and results are cached on the
