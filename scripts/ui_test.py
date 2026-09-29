@@ -101,6 +101,53 @@ def main():
         time.sleep(1.5)
         shot(page, "03-playing")
 
+        # ── resilience: a refused stream is retried, not skipped ──
+        # Separate context with the service worker blocked: Playwright's
+        # page.route can't intercept requests the SW proxies.
+        rctx = browser.new_context(viewport={"width": 1440, "height": 900},
+                                   service_workers="block")
+        p2 = rctx.new_page()
+        p2.goto(BASE, wait_until="load", timeout=30000)
+        p2.wait_for_selector("#auth-form", state="visible", timeout=15000)
+        p2.fill("#auth-user", "admin")
+        p2.fill("#auth-pass", "osmp-admin")
+        p2.click("#auth-go")
+        p2.wait_for_selector("#app:not(.hidden)", timeout=20000)
+        refused = {"n": 0}
+
+        def refuse_first(route):
+            url = route.request.url
+            if refused["n"] == 0 and "/api/stream/" in url and "retry=" not in url:
+                refused["n"] += 1
+                route.fulfill(status=502, content_type="application/json",
+                              body='{"detail":"simulated YouTube refusal"}')
+            else:
+                route.continue_()
+
+        p2.route("**/api/stream/**", refuse_first)
+        p2.click('a[data-route="search"]')
+        p2.wait_for_selector("#sr-input", timeout=8000)
+        p2.fill("#sr-input", "daft punk get lucky")
+        p2.keyboard.press("Enter")
+        p2.wait_for_selector(".tl-row", timeout=30000)
+        time.sleep(0.8)
+        want = (p2.locator(".tl-row").nth(0).locator(".tl-title").text_content() or "").strip()
+        p2.click(".tl-row >> nth=0")
+        retried_ok = False
+        for _ in range(30):
+            time.sleep(1)
+            t = p2.evaluate("document.getElementById('audio-el').currentTime")
+            if t and t > 0.5:
+                retried_ok = True
+                break
+        check("resilience: refused stream retried, not skipped",
+              retried_ok and refused["n"] == 1, f"refused={refused['n']}")
+        got = (p2.text_content("#pb-title") or "").strip()
+        check("resilience: clicked track still plays",
+              bool(want) and (want in got or got in want), f"want={want!r} got={got!r}")
+        p2.unroute("**/api/stream/**")
+        rctx.close()
+
         # ── controls ──────────────────────────────────────────
         page.click("#pb-play")  # pause
         time.sleep(0.4)

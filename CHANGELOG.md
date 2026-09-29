@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.1 — 2026-09-29
+
+Playback resilience fix.
+
+### Fixed
+- **Streams that fail once are now retried instead of skipped.** YouTube
+  briefly refuses track resolves at times (bot checks during rapid
+  queueing); the client used to give up after a single error, toast
+  "Can't play — skipping" and move on. Every track now gets one silent
+  second attempt ~2s later (with a cache-buster), which recovers these
+  transients on all clients.
+- After four consecutive failures playback now stops with one clear
+  message instead of toasting its way through the whole queue (the
+  failure counter no longer resets when a skipped track loads).
 ## v0.5.0 — 2026-09-29
 
 The smart playlist release: lists that maintain themselves.

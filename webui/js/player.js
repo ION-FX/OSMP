@@ -13,6 +13,7 @@ const el = {}; // cached player-bar elements
 
 let order = [];            // playback order: array of queue indices
 let failStreak = 0;        // consecutive load failures (auto-skip guard)
+let retriedTrack = null;   // id of the track already given its one silent retry
 let sleepTick = null;
 let fadeTimer = null;
 let fadeVolume = null;     // level the sleep fade last applied (user-nudge guard)
@@ -85,7 +86,7 @@ function startAtOrder(pos) {
   const idx = order[pos];
   const track = q[idx];
   set({ queueIndex: idx, current: track }, false);
-  failStreak = 0;
+  retriedTrack = null;
 
   const a = audio();
   a.loop = get('repeat') === 'one';
@@ -733,14 +734,33 @@ export function initPlayer() {
     if (get('repeat') !== 'one') next(true);
   });
   a.addEventListener('error', () => {
-    if (!get('current')) return;
-    failStreak++;
     const t = get('current');
+    if (!t) return;
+
+    // YouTube briefly refuses resolves at times (bot checks); a fresh
+    // request a couple of seconds later almost always goes through. Give
+    // every track one silent second attempt before moving on.
+    if (retriedTrack !== t.id) {
+      retriedTrack = t.id;
+      setTimeout(() => {
+        if (get('current') !== t) return;  // user moved on meanwhile
+        const base = streamUrl(t);
+        // cache-buster only for server-relative streams; the Android
+        // offline virtual host matches plain paths
+        a.src = base.startsWith('/')
+          ? base + (base.includes('?') ? '&' : '?') + 'retry=1'
+          : base;
+        a.play().catch(() => { /* the error handler picks it up */ });
+      }, 1800);
+      return;
+    }
+
+    failStreak++;
     if (failStreak <= 3) {
       toastErr(`Can't play “${t.title}” — skipping`);
       setTimeout(() => next(true), 900);
     } else {
-      toastErr('Playback keeps failing — check your connection or the server', { timeout: 8000 });
+      toastErr('Playback keeps failing — YouTube is likely refusing requests for the moment. Try again in a minute.', { timeout: 8000 });
       set({ playing: false });
       updatePlayButton();
     }
