@@ -329,9 +329,8 @@ export function deviceOfflineIds() {
 }
 
 function deviceSourceUrl(track) {
-  return track.offline
-    ? `/api/library/stream/${encodeURIComponent(track.id)}`
-    : `/api/stream/${encodeURIComponent(track.id)}?fmt=${localStorage.getItem('osmp.format') || 'auto'}`;
+  // streamUrl() carries the codec negotiation (AAC-less clients get opus)
+  return streamUrl(track);
 }
 
 export async function saveToDevice(track) {

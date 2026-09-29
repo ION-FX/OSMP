@@ -201,7 +201,7 @@ Everything lives in the Settings view (or `~/.local/share/osmp/osmp.db`):
 | AI Curator | `base_url`, `api_key`, `model` for any OpenAI-compatible API |
 | Updates | Optional GitHub token (private repos); check / update / yt-dlp refresh |
 | Accounts | Admin-managed users; listeners get their own history (Settings → Accounts) |
-| Stream format | `auto` / `m4a` (max compatibility) / `opus` (best quality) |
+| Stream format | `auto` (picks what the device can play) / `m4a` / `opus` |
 | Sound | 3-band equalizer with presets (per-device, applies live) |
 | Backup & restore | Export/import the library as JSON (admin) |
 

@@ -169,6 +169,28 @@ def main():
         time.sleep(0.4)
         check("controls: resume works", not page.evaluate("document.getElementById('audio-el').paused"))
 
+        # v0.5.3: codec negotiation — auto format follows device capability
+        neg = page.evaluate("""async () => {
+          const mod = await import('/js/api.js');
+          const kept = localStorage.getItem('osmp.format');
+          localStorage.removeItem('osmp.format');
+          const out = {};
+          out.aacDetected = mod.canDecodeAac();                 // true in Chromium
+          out.autoUrl = mod.streamUrl({ id: 'dQw4w9WgXcQ', offline: false });
+          out.offlineUrl = mod.streamUrl({ id: 'dQw4w9WgXcQ', offline: true });
+          localStorage.setItem('osmp.format', 'opus');
+          out.forcedUrl = mod.streamUrl({ id: 'dQw4w9WgXcQ', offline: false });
+          if (kept) localStorage.setItem('osmp.format', kept);
+          else localStorage.removeItem('osmp.format');
+          return out;
+        }""")
+        check("negotiation: Chromium detects AAC → auto=m4a",
+              neg["aacDetected"] is True and neg["autoUrl"].endswith("fmt=m4a")
+              and "?fmt=" not in neg["offlineUrl"],
+              str(neg))
+        check("negotiation: explicit format wins",
+              neg["forcedUrl"].endswith("fmt=opus"), str(neg))
+
         # v0.5.2: the Android notification must never lose its metadata —
         # every bridge payload (including play/pause toggles) carries a title
         mstate = page.evaluate("""() => {

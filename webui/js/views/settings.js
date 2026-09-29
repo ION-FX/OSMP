@@ -155,7 +155,7 @@ export async function mount(root) {
         <div class="field" style="margin-bottom:16px">
           <label>Stream format</label>
           <select class="select" id="st-format" style="max-width:320px">
-            <option value="auto">Auto (m4a, opus fallback) — most compatible</option>
+            <option value="auto">Auto — picks what this device can play</option>
             <option value="m4a">m4a / AAC — works everywhere incl. Safari</option>
             <option value="opus">Opus / WebM — best quality, Chromium browsers</option>
           </select>

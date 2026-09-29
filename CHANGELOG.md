@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.3 — 2026-09-29
+
+Fixed: the Linux AppImage played nothing at all.
+
+### Fixed
+- **Root cause**: Qt WebEngine (shipped in the PySide6 wheels the AppImage
+  is built from) comes without proprietary codecs — it cannot decode AAC
+  in m4a. The server's "auto" format hands every stream over as m4a, so
+  every track errored instantly on desktop while Chrome and Android
+  WebView (which have AAC) played fine.
+- **Codec negotiation**: the client now probes `canPlayType` once and
+  "auto" means "what this device can play" — m4a when supported, opus
+  otherwise. An explicit format choice in Settings still wins.
+- **Local files transcode when needed**: downloaded/uploaded tracks are
+  usually m4a; AAC-less clients now get a live opus transcode from the
+  server's ffmpeg (`/api/library/stream/{id}?fmt=opus`). Already-free
+  formats (opus/ogg/mp3/flac) are served as before, with ranges.
 ## v0.5.2 — 2026-09-29
 
 Android notification fix.

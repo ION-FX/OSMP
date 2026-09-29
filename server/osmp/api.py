@@ -583,7 +583,42 @@ def library_delete(video_id: str):
     return {"ok": True}
 
 
-async def _local_file(request: Request, video_id: str, head_only: bool):
+_AAC_FAMILY = {".m4a", ".mp4", ".aac"}
+
+
+def _transcode_response(path: Path):
+    """Live-convert an AAC-family file to opus/webm for clients that cannot
+    decode AAC (Qt WebEngine in the AppImage). No ranges — the browser gets
+    a full stream from zero; the process is killed if the client drops."""
+    cfg = get_config()
+    ff = cfg.ffmpeg_path
+    if not ff:
+        raise HTTPException(500, "ffmpeg not available for transcoding")
+    import subprocess
+    proc = subprocess.Popen(
+        [ff, "-v", "error", "-i", str(path), "-map", "0:a:0",
+         "-c:a", "libopus", "-b:a", "128k", "-deadline", "realtime",
+         "-cpu-used", "5", "-f", "webm", "pipe:1"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def chunks():
+        try:
+            while True:
+                buf = proc.stdout.read(64 * 1024)
+                if not buf:
+                    break
+                yield buf
+        finally:
+            proc.stdout.close()
+            if proc.poll() is None:
+                proc.terminate()
+
+    return StreamingResponse(chunks(), media_type="audio/webm", headers={
+        "Cache-Control": "no-store", "Accept-Ranges": "none"})
+
+
+async def _local_file(request: Request, video_id: str, head_only: bool,
+                      fmt: str = ""):
     row = db.get_track(video_id)
     if not row or not row.get("file_path"):
         raise HTTPException(404, "not in library")
@@ -591,6 +626,8 @@ async def _local_file(request: Request, video_id: str, head_only: bool):
     if not path.exists():
         db.set_track_file(video_id, None, None)
         raise HTTPException(404, "file missing")
+    if fmt == "opus" and path.suffix.lower() in _AAC_FAMILY:
+        return _transcode_response(path)
     ctype = MEDIA_TYPES.get(path.suffix.lower(), "audio/mp4")
     if head_only:
         return Response(status_code=200, media_type=ctype, headers={
@@ -600,13 +637,13 @@ async def _local_file(request: Request, video_id: str, head_only: bool):
 
 
 @router.get("/library/stream/{video_id}")
-async def library_stream(request: Request, video_id: str):
-    return await _local_file(request, video_id, head_only=False)
+async def library_stream(request: Request, video_id: str, fmt: str = ""):
+    return await _local_file(request, video_id, head_only=False, fmt=fmt)
 
 
 @router.head("/library/stream/{video_id}")
-async def library_stream_head(request: Request, video_id: str):
-    return await _local_file(request, video_id, head_only=True)
+async def library_stream_head(request: Request, video_id: str, fmt: str = ""):
+    return await _local_file(request, video_id, head_only=True, fmt=fmt)
 
 
 # --------------------------------------------------------------- playlists

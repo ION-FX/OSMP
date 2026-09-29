@@ -343,6 +343,43 @@ def main():
         api.req("DELETE", f"/api/library/{t['id']}")
     check("smart: anon blocked", Api(BASE).req("GET", "/api/smart", auth=False).get("__status") == 401)
 
+    # ── transcode for AAC-less clients (AppImage) ────────────────
+    def synth_m4a(name: str) -> bytes:
+        import subprocess as _sp2, tempfile as _tf2, os as _os2
+        # NB: this VM's python strips os.expanduser; os.path.expanduser remains
+        ff = _os2.path.expanduser("~/tools/ffmpeg/bin/ffmpeg")
+        with _tf2.TemporaryDirectory() as td:
+            out = _os2.path.join(td, name)
+            _sp2.run([ff, "-y", "-loglevel", "error", "-f", "lavfi",
+                      "-i", "sine=frequency=520:duration=2",
+                      "-c:a", "aac", "-b:a", "64k", out],
+                     check=True, timeout=60)
+            with open(out, "rb") as fh:
+                return fh.read()
+
+    m4a = synth_m4a("transcode probe.m4a")
+    body_t = (f"--{boundary}\r\n"
+              "Content-Disposition: form-data; name=\"file\"; filename=\"transcode probe.m4a\"\r\n"
+              "Content-Type: audio/mp4\r\n\r\n").encode() + m4a + f"\r\n--{boundary}--\r\n".encode()
+    rq = _u.Request(api.base + "/api/upload", data=body_t, method="POST")
+    rq.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    rq.add_header("Authorization", "Bearer " + api.token)
+    with _u.urlopen(rq, timeout=60) as resp:
+        ttr = json.loads(resp.read())["track"]
+    raw = api.req("GET", f"/api/library/stream/{ttr['id']}", raw=True)
+    check("transcode: plain stream serves original m4a",
+          b"ftyp" in raw[:16], raw[:16].hex())
+    import urllib.request as _u2
+    rq2 = _u2.Request(api.base + f"/api/library/stream/{ttr['id']}?fmt=opus")
+    rq2.add_header("Authorization", "Bearer " + api.token)
+    with _u2.urlopen(rq2, timeout=60) as resp:
+        ctype = resp.headers.get("Content-Type", "")
+        webm = resp.read(64)
+    check("transcode: ?fmt=opus returns webm/opus stream",
+          "webm" in ctype and webm[:4] == b"\x1a\x45\xdf\xa3",
+          f"ctype={ctype} head={webm[:4].hex()}")
+    api.req("DELETE", f"/api/library/{ttr['id']}")
+
     # ── guards ────────────────────────────────────────────────────
     anon = Api(BASE)
     for path, label in (("/api/stats?days=7", "stats"),

@@ -202,14 +202,38 @@ export const api = {
 };
 
 // stream URLs — the player uses these directly on the <audio> element
+
+// Qt WebEngine (the Linux AppImage) ships without proprietary codecs: it
+// cannot decode AAC in m4a. Ask the element what it supports once and pick
+// the format accordingly, so "auto" means "what this device can play".
+let _canAac = null;
+export function canDecodeAac() {
+  if (_canAac === null) {
+    const probe = document.createElement('audio');
+    const v = probe.canPlayType('audio/mp4; codecs="mp4a.40.2"');
+    _canAac = v === 'probably' || v === 'maybe';
+  }
+  return _canAac;
+}
+
+function streamFormat() {
+  const stored = localStorage.getItem('osmp.format');
+  if (stored && stored !== 'auto') return stored;  // explicit choice wins
+  return canDecodeAac() ? 'm4a' : 'opus';
+}
+
 export const streamUrl = (track) => {
   const id = track.id;
   if (window.OsmpBridge && window.OsmpBridge.isDownloaded && window.OsmpBridge.isDownloaded(id)) {
     return `https://offline.osmp.local/${id}`;
   }
-  if (track.offline) return `/api/library/stream/${encodeURIComponent(id)}`;
-  const fmt = localStorage.getItem('osmp.format') || 'auto';
-  return `/api/stream/${encodeURIComponent(id)}?fmt=${fmt}`;
+  if (track.offline) {
+    const base = `/api/library/stream/${encodeURIComponent(id)}`;
+    // server-side files are usually m4a; ask for a live opus transcode only
+    // when this device can't decode AAC (no-op for opus/mp3/flac files)
+    return canDecodeAac() ? base : `${base}?fmt=opus`;
+  }
+  return `/api/stream/${encodeURIComponent(id)}?fmt=${streamFormat()}`;
 };
 
 export const thumbUrl = (track, size = 'maxres') => {
