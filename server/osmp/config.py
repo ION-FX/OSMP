@@ -3,20 +3,37 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
-# Locations we look in for a static ffmpeg, in order, after $PATH.
+WINDOWS = sys.platform == "win32"
+
+# Locations we look for a static ffmpeg, in order after $PATH (POSIX only —
+# on Windows shutil.which already finds ffmpeg.exe, and the frozen desktop
+# bundle drops one into the vendor dir next to the exe).
 _FFMPEG_EXTRA_PATHS = [
     Path.home() / "tools" / "ffmpeg" / "bin",
-    Path(__file__).resolve().parent.parent / "vendor" / "ffmpeg",  # bundled (AppImage)
+    Path(__file__).resolve().parent.parent / "vendor" / "ffmpeg",  # bundled (AppImage / exe)
     Path("/usr/local/bin"),
 ]
+
+_FFMPEG_NAMES = ("ffmpeg.exe", "ffmpeg") if WINDOWS else ("ffmpeg",)
+
+
+def default_data_dir() -> Path:
+    r"""Per-OS user data dir: %LOCALAPPDATA%\OSMP on Windows,
+    ~/.local/share/osmp everywhere else."""
+    if WINDOWS:
+        base = os.environ.get("LOCALAPPDATA")
+        if base:
+            return Path(base) / "OSMP"
+    return Path.home() / ".local" / "share" / "osmp"
 
 
 class Config:
     def __init__(self, data_dir: str | os.PathLike | None = None):
         env_data = os.environ.get("OSMP_DATA")
-        base = Path(data_dir or env_data or (Path.home() / ".local" / "share" / "osmp"))
+        base = Path(data_dir or env_data or default_data_dir())
         self.data_dir: Path = base
         self.library_dir: Path = base / "library"
         self.covers_dir: Path = base / "covers"
@@ -35,13 +52,14 @@ class Config:
         env = os.environ.get("OSMP_FFMPEG")
         if env and Path(env).is_file():
             return env
-        found = shutil.which("ffmpeg")
+        found = shutil.which("ffmpeg")  # finds ffmpeg.exe on Windows too
         if found:
             return found
         for d in _FFMPEG_EXTRA_PATHS:
-            cand = d / "ffmpeg"
-            if cand.is_file() and os.access(cand, os.X_OK):
-                return str(cand)
+            for name in _FFMPEG_NAMES:
+                cand = d / name
+                if cand.is_file():
+                    return str(cand)
         return None
 
 

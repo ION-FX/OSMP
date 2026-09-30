@@ -80,7 +80,7 @@ def current_info() -> dict:
         if r.returncode == 0:
             info["dirty"] = bool(r.stdout.strip())
     elif is_frozen():
-        info["mode"] = "appimage"
+        info["mode"] = "appimage" if appimage_path() else "windows-exe"
     return info
 
 
@@ -238,6 +238,11 @@ def _run_job(job_id: str, job: dict, kind: str) -> None:
             _appimage_job(job)
         elif info["mode"] == "source":
             _source_job(job, info)
+        elif info["mode"] == "windows-exe":
+            # the zip has no in-place updater — but yt-dlp refreshes still work
+            raise UpdateError(
+                "Windows builds update by downloading the new zip from "
+                + RELEASE_URL + " — 'Update yt-dlp only' still works here.")
         else:
             raise UpdateError(
                 "This install doesn't support self-update (no git repo, not an "

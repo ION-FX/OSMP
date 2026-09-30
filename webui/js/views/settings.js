@@ -576,6 +576,7 @@ export async function mount(root) {
   upNow.textContent = `OSMP v${cfgNow.version || '?'}` +
     (cfgNow.commit ? ` · build ${cfgNow.commit}` : '') +
     (cfgNow.update_mode === 'appimage' ? ' · AppImage'
+      : cfgNow.update_mode === 'windows-exe' ? ' · Windows build'
       : cfgNow.update_mode === 'source' ? ' · source install' : '');
 
   const onAndroid = !!window.OsmpBridge;

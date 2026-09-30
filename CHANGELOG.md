@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.6.0 — 2026-09-30
+
+The Windows release: the desktop client now ships for Windows too, built
+and smoke-tested by CI on real Windows machines.
+
+### Added
+- **osmp-windows-x64.zip** — the same Qt desktop client as the AppImage,
+  for Windows. Built by a GitHub Actions workflow (`.github/workflows/
+  windows.yml`) that runs the PyInstaller build **and the smoke test on a
+  genuine windows-latest runner**, bundles a static ffmpeg.exe, and
+  attaches the zip to every version-tagged release.
+- `scripts/build_windows.ps1` — the Windows build (PowerShell twin of the
+  AppImage script, including the bundled-ffmpeg step).
+- README: Windows setup + server-only-on-Windows instructions.
+
+### Windows compatibility
+- Data directory: `%LOCALAPPDATA%\OSMP` (server) / `%APPDATA%\osmp`
+  (desktop config) instead of the POSIX `~/.local/share` paths.
+- ffmpeg discovery understands `ffmpeg.exe` and the frozen vendor dir.
+- uvicorn runs under the Windows selector event loop (the Proactor default
+  breaks its asyncio/websockets loop); all subprocess use stays synchronous.
+- Self-update knows the "windows-exe" mode: Settings reports the build,
+  update checks work, and apply explains that Windows updates by
+  downloading the new zip (yt-dlp refresh still works in place).
 ## v0.5.4 — 2026-09-30
 
 Codebase bug sweep — visual and functional fixes across all three clients.

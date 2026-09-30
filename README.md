@@ -80,15 +80,16 @@
 | ![stats](docs/screenshots/16-stats.png) | ![lyrics](docs/screenshots/18-lyrics.png) |
 | ![artist](docs/screenshots/17-artist.png) | ![history](docs/screenshots/20-history.png) |
 
-## The three surfaces
+## The surfaces
 
 | Surface | What it is |
 |---|---|
 | **Browser** | The full web app (installable PWA). Zero build step — hand-written ES modules, no npm anywhere. |
 | **Linux AppImage** | `OSMP-x86_64.AppImage` — a desktop client (Qt WebEngine) that connects to your server. Can also run the entire server on this machine instead (bundled server, yt-dlp, ffmpeg). System tray with transport controls. |
+| **Windows** | `osmp-windows-x64.zip` — the same Qt desktop client for Windows, built and smoke-tested on real Windows machines by CI. Unzip anywhere and run `osmp_desktop.exe`; connect to your server or tick *"run a server on this computer"*. Bundles server, yt-dlp and ffmpeg; updates by downloading a new zip (Settings still tells you when one is out). |
 | **Android APK** | WebView client + native layer: signs into the server, on-device downloads served through a virtual host (offline playback with zero network), wake lock, media notification with lock-screen controls. |
 
-All three share one codebase for the UI (`webui/`).
+Every surface shares one codebase for the UI (`webui/`).
 
 ## Setup — one server, everyone connects
 
@@ -128,6 +129,8 @@ only admins manage users, server settings and updates.
 - **Android** — install the APK, enter the server address + your account.
 - **Linux** — run the AppImage, enter the server address + your account
   (or tick *"run a server on this computer"* on a desktop machine).
+- **Windows** — unzip `osmp-windows-x64.zip` and run `osmp_desktop.exe`
+  (same first-run options as the AppImage).
 
 ## Offline mode (all clients)
 
@@ -155,6 +158,26 @@ this computer"* on the first screen to use it standalone. Local mode shares the
 same library directory as the plain server, so downloads follow you.
 Useful flags: `--server URL` (skip the dialog), `--local`, `--browser`
 (serve + open your default browser), `--port N`, `--data DIR`.
+
+## Windows
+
+Download `osmp-windows-x64.zip` from
+[Releases](https://github.com/ION-FX/OSMP/releases), unzip it anywhere and
+run `osmp_desktop.exe`. It's the same Qt client as the AppImage — connect to
+your server, or tick *"run a server on this computer"* to use it standalone
+(the server, yt-dlp and a static ffmpeg are all bundled; data lives in
+`%LOCALAPPDATA%\OSMP`). The zip is built **and smoke-tested by CI on a real
+Windows machine** on every release. To update, download the new zip —
+Settings → Updates still tells you when a newer release is out.
+
+Running the server alone on Windows (no GUI) works too:
+
+```powershell
+py -m venv server\venv
+server\venv\Scripts\pip install -r server\requirements.txt
+server\venv\Scripts\python server\run.py --host 0.0.0.0 --port 8790
+```
+
 
 > **Note for Ubuntu 23.04+ / distros without `libfuse2`:** AppImages use FUSE
 > to mount themselves. If double-clicking reports a missing `libfuse.so.2`,

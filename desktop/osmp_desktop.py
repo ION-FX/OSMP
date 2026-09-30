@@ -30,7 +30,22 @@ from pathlib import Path
 # Chromium inside AppImages cannot use the setuid sandbox.
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
 
-CFG_FILE = Path.home() / ".config" / "osmp" / "desktop.json"
+if sys.platform == "win32":
+    # the asyncio proxy (and any embedded uvicorn) needs the selector loop
+    # on Windows; nothing here uses async subprocesses, so this is safe
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def _config_file() -> Path:
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA")
+        if base:
+            return Path(base) / "osmp" / "desktop.json"
+    return Path.home() / ".config" / "osmp" / "desktop.json"
+
+
+CFG_FILE = _config_file()
 
 
 def _resource_dir() -> Path:

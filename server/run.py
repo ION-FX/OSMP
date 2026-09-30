@@ -142,6 +142,12 @@ def main() -> None:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
 
     import uvicorn
+    if sys.platform == "win32":
+        # uvicorn's asyncio/websockets loop needs the selector policy on
+        # Windows (the default Proactor loop breaks it). All our subprocess
+        # use is synchronous (yt-dlp, ffmpeg), so this is safe.
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level,
                 access_log=False)
 
