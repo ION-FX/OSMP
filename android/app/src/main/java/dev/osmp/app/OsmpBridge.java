@@ -32,6 +32,12 @@ public class OsmpBridge {
 
     @JavascriptInterface
     public void downloadTrack(String id, String url, String title, String artist) {
+        // older cached UIs may hand us a server-relative path — resolve it,
+        // java.net.URL rejects anything without a protocol
+        if (url != null && !url.contains("://")) {
+            String base = activity.getServerUrl();
+            if (base != null) url = base + (url.startsWith("/") ? url : "/" + url);
+        }
         store.download(id, url, title, artist);
     }
 

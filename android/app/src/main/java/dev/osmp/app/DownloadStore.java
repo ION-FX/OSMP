@@ -196,6 +196,9 @@ public class DownloadStore {
     }
 
     private static String guessExt(String url) {
+        // the stream endpoint's format parameter decides the container —
+        // the path itself has no extension
+        if (url.contains("fmt=opus")) return "webm";
         String lower = url.toLowerCase();
         int q = lower.indexOf('?');
         if (q > 0) lower = lower.substring(0, q);

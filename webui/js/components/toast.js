@@ -20,8 +20,13 @@ export function toast(msg, opts = {}) {
     btn.onclick = () => { dismiss(); action.onClick(); };
   }
   host().appendChild(el);
-  const timer = timeout ? setTimeout(dismiss, timeout) : null;
+  let timer = timeout ? setTimeout(dismiss, timeout) : null;
+  // hover pauses the countdown; leaving resumes it so a toast can never
+  // get pinned forever by a mouse that wandered across it
   el.addEventListener('mouseenter', () => timer && clearTimeout(timer));
+  el.addEventListener('mouseleave', () => {
+    if (timeout) timer = setTimeout(dismiss, Math.min(timeout, 4000));
+  });
   function dismiss() {
     if (!el.isConnected) return;
     el.classList.add('out');

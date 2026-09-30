@@ -84,6 +84,6 @@ export function hydrateIcons(root = document) {
   });
 }
 
-export function setIcon(el, name, size = 20) {
-  el.innerHTML = icon(name, size);
+export function setIcon(el, name, size = 20, fill = false) {
+  el.innerHTML = icon(name, size, fill);
 }

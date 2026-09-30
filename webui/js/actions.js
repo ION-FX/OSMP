@@ -111,12 +111,18 @@ export async function toggleLike(track) {
 
 const nativePolls = new Map(); // id -> interval
 
+// The Android download worker needs an absolute URL (java.net.URL rejects
+// relative paths); streamUrl() returns server-relative ones.
+function nativeStreamUrl(track) {
+  return new URL(streamUrl({ ...track, offline: false }), location.origin).href;
+}
+
 export function downloadTrack(track, buttonEl = null) {
   const b = bridge();
   if (b && b.downloadTrack) {
     // Android: native on-device download
     try {
-      b.downloadTrack(track.id, streamUrl({ ...track, offline: false }), track.title || '', track.artist || '');
+      b.downloadTrack(track.id, nativeStreamUrl(track), track.title || '', track.artist || '');
       toast(`Downloading to device — ${track.title}`, { icon: 'download' });
       pollNative(track.id, buttonEl);
     } catch (e) {
@@ -257,7 +263,7 @@ export async function downloadAllTracks(tracks, { onProgress } = {}) {
     // Android native downloads manage their own queue
     todo.forEach(t => {
       try {
-        b.downloadTrack(t.id, streamUrl({ ...t, offline: false }),
+        b.downloadTrack(t.id, nativeStreamUrl(t),
           t.title || '', t.artist || '');
       } catch { /* native side reports failures via state */ }
     });
@@ -366,6 +372,8 @@ export function isDeviceOffline(track) {
 export async function removeDeviceOffline(track) {
   try {
     const cache = await caches.open(AUDIO_CACHE);
+    // match on pathname only — the same track may be cached under different
+    // query strings (e.g. ?fmt=opus on AAC-less clients)
     const target = new URL(deviceSourceUrl(track), location.origin).pathname;
     const keys = await cache.keys();
     await Promise.all(keys
@@ -588,7 +596,11 @@ export function initActions() {
   };
   document.getElementById('np-radio').onclick = () => {
     const t = get('current');
-    if (t) location.hash = `#/radio?seed=${encodeURIComponent(t.id)}`;
+    if (!t) return;
+    // uploads have no YouTube id — seed the radio with their name instead
+    const seed = t.source === 'local'
+      ? `${t.artist || ''} ${t.title || ''}`.trim() : t.id;
+    location.hash = `#/radio?seed=${encodeURIComponent(seed)}`;
   };
   sub('library', () => {
     // sync offline flags into queue/current for UI correctness

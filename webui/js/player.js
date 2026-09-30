@@ -256,8 +256,8 @@ export function clearQueue() {
 export function setSleepMinutes(minutes) {
   clearSleep(false);
   if (!minutes || minutes <= 0) return;
-  const endsAt = Date.now() + minutes * 60000;
-  set({ sleep: { mode: 'timer', endsAt, endOfTrack: false } });
+  const totalMs = minutes * 60000;
+  set({ sleep: { mode: 'timer', endsAt: Date.now() + totalMs, totalMs, endOfTrack: false } });
   persist('sleep', get('sleep'));
   startSleepTick();
   updateSleepUi();
@@ -495,6 +495,10 @@ function updateSleepUi() {
       ring.innerHTML = '<circle cx="20" cy="20" r="18"/>';
       el.sleep.appendChild(ring);
     }
+    // drain the circle as the timer runs down (113 = 2π·18, the CSS base)
+    const total = s.totalMs || ms || 1;
+    ring.querySelector('circle').style.strokeDashoffset =
+      String(113 * (1 - Math.min(1, ms / total)));
   } else {
     count.classList.add('hidden');
     count.textContent = s.mode === 'end' ? 'EOT' : s.mode === 'queue' ? 'EOQ' : '';
@@ -565,6 +569,12 @@ function bindScrubbing() {
     bar.classList.remove('scrubbing');
     bar.querySelector('.pb-tip')?.remove();
     audio().currentTime = posFromEvent(e) * audio().duration;
+  });
+  bar.addEventListener('pointercancel', () => {
+    // gesture stolen mid-scrub — drop the visual state without seeking
+    scrubbing = false;
+    bar.classList.remove('scrubbing');
+    bar.querySelector('.pb-tip')?.remove();
   });
   bar.addEventListener('keydown', (e) => {
     const a = audio();

@@ -174,11 +174,12 @@ public class MainActivity extends Activity {
             Uri uri = req.getUrl();
             if (uri == null) return false;
             String host = uri.getHost();
+            String scheme = uri.getScheme();
             // keep app navigation inside; external links (youtube.com etc.) → browser
             boolean internal = host != null && (serverUrl.contains(host)
                     || host.equals(OFFLINE_HOST) || host.equals("localhost")
                     || host.equals("127.0.0.1"));
-            if (!internal && (uri.getScheme().equals("http") || uri.getScheme().equals("https"))) {
+            if (!internal && ("http".equals(scheme) || "https".equals(scheme))) {
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception ignored) { }

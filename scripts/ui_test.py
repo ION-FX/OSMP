@@ -191,6 +191,15 @@ def main():
         check("negotiation: explicit format wins",
               neg["forcedUrl"].endswith("fmt=opus"), str(neg))
 
+        # v0.5.4: setIcon fill passthrough (the like heart fills when active)
+        fillOk = page.evaluate("""async () => {
+          const { setIcon } = await import('/js/components/icons.js');
+          const b = document.createElement('button');
+          setIcon(b, 'heart', 19, true);
+          return b.querySelector('svg').getAttribute('fill') === 'currentColor';
+        }""")
+        check("icons: setIcon honors fill (like heart)", fillOk)
+
         # v0.5.2: the Android notification must never lose its metadata —
         # every bridge payload (including play/pause toggles) carries a title
         mstate = page.evaluate("""() => {

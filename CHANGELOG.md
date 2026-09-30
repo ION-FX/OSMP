@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.5.4 — 2026-09-30
+
+Codebase bug sweep — visual and functional fixes across all three clients.
+
+### Fixed
+- **Android on-device downloads never worked**: the web UI handed the native
+  downloader a server-relative URL (`/api/stream/…`), which Java's
+  `java.net.URL` rejects outright. URLs are now resolved against the server
+  origin in the UI (with a native fallback for older cached pages).
+- **Android downloads saved opus streams as .m4a** — the container is now
+  derived from the stream's `fmt` parameter, so the file gets the right
+  extension and MIME type.
+- **The Like heart never rendered filled** — `setIcon()` dropped its fill
+  argument, so the button looked identical whether the track was liked.
+- **Sleep-timer ring never drained** — the moon button's countdown circle
+  stayed invisible for the whole timer because its progress was never set.
+- **Toasts could get pinned forever** — hovering one cancelled its
+  auto-dismiss with no resume; leaving now restarts the countdown.
+- **Scrub bar stuck in grab state** when a pointer gesture was cancelled
+  mid-drag (e.g. touch stolen by a scroll) — now cleaned up on pointercancel.
+- **Radio from an uploaded track** (now-playing screen) seeded the radio
+  with its internal `local_…` id and produced garbage — it now seeds with
+  artist + title like the track menu does.
+- **Android crash risk**: link handling dereferenced the URI scheme without
+  a null check (malformed/intent URIs could kill the app).
 ## v0.5.3 — 2026-09-29
 
 Fixed: the Linux AppImage played nothing at all.
