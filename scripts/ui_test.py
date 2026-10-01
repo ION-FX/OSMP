@@ -509,6 +509,23 @@ def main():
         check("smart: delete returns to library",
               page.evaluate("location.hash").startswith("#/library"))
 
+        # ── v0.7.0: per-user playlists & share dialog ────────
+        page.goto(BASE + "/#/library")
+        time.sleep(1.6)
+        page.locator(".pl-item").first.click()
+        time.sleep(1.5)
+        check("sharing: owner sees Share button", page.locator("#pl-share").count() == 1)
+        check("sharing: owner sees rename/delete",
+              page.locator("#pl-rename").count() == 1 and page.locator("#pl-delete").count() == 1)
+        page.click("#pl-share")
+        page.wait_for_selector(".modal", timeout=5000)
+        check("sharing: dialog has account picker + editor",
+              page.locator(".modal select").count() >= 1
+              and page.locator(".modal [data-act=\"save\"]").count() == 1)
+        shot(page, "25-share-dialog")
+        page.click('.modal [data-act="cancel"]')
+        time.sleep(0.5)
+
         # ── v0.3.0: lyrics (needs the playing track from earlier) ──
         page.keyboard.press("l")
         page.wait_for_selector("#lyrics-overlay:not(.hidden)", timeout=5000)

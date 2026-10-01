@@ -380,6 +380,91 @@ def main():
           f"ctype={ctype} head={webm[:4].hex()}")
     api.req("DELETE", f"/api/library/{ttr['id']}")
 
+    # ── per-user playlists & sharing ──────────────────────────────
+    api.req("POST", "/api/users", {"username": "apitest_share",
+                                   "password": "test1234", "role": "user"})
+    lst = Api(BASE)
+    check("share: listener login", bool(lst.login("apitest_share", "test1234")))
+
+    pl_adm = api.req("POST", "/api/playlists", {"name": "Admin Owns"})
+    check("share: create returns owner", pl_adm.get("owner") == "admin"
+          and pl_adm.get("is_mine") is True)
+    check("share: hidden from other accounts",
+          lst.req("GET", f"/api/playlists/{pl_adm['id']}").get("__status") == 404
+          and all(p["id"] != pl_adm["id"]
+                  for p in lst.req("GET", "/api/playlists")["playlists"]))
+    pl_lst = lst.req("POST", "/api/playlists", {"name": "Friend Owns"})
+    check("share: listener owns their own", pl_lst.get("owner") == "apitest_share")
+    check("share: admin cannot see listener's",
+          api.req("GET", f"/api/playlists/{pl_lst['id']}").get("__status") == 404)
+
+    # the same name in two accounts is fine now
+    lst_liked = lst.req("POST", "/api/playlists", {"name": "Liked"})
+    adm_liked = api.req("POST", "/api/playlists", {"name": "Liked"})
+    check("share: per-user Liked coexist",
+          lst_liked.get("id") != adm_liked.get("id")
+          and any(p["id"] == lst_liked["id"]
+                  for p in lst.req("GET", "/api/playlists")["playlists"])
+          and all(p["id"] != lst_liked["id"]
+                  for p in api.req("GET", "/api/playlists")["playlists"]))
+
+    ub = api.req("GET", "/api/users/brief")["users"]
+    check("share: users/brief lists accounts",
+          {"id", "username"} <= set(ub[0]) and
+          {u["username"] for u in ub} >= {"admin", "apitest_share"})
+    check("share: users/brief needs auth",
+          Api(BASE).req("GET", "/api/users/brief", auth=False).get("__status") == 401)
+
+    # listener shares their list to admin — view first, then edit
+    sh = lst.req("PUT", f"/api/playlists/{pl_lst['id']}/share",
+                 {"shares": [{"username": "admin", "can_edit": False}]})
+    check("share: owner grants view", sh.get("ok") is True
+          and sh["shares"][0]["username"] == "admin")
+    got = api.req("GET", f"/api/playlists/{pl_lst['id']}")
+    check("share: admin sees shared (view)",
+          got.get("owner") == "apitest_share" and got.get("is_mine") is False
+          and got.get("can_edit") is False)
+    tid = {"id": "dQw4w9WgXcQ", "title": "NGGYU", "artist": "Rick", "duration": 213}
+    check("share: view cannot add tracks",
+          api.req("POST", f"/api/playlists/{pl_lst['id']}/tracks",
+                  {"tracks": [tid]}).get("__status") == 403)
+    check("share: view cannot delete",
+          api.req("DELETE", f"/api/playlists/{pl_lst['id']}").get("__status") == 403)
+    lst.req("PUT", f"/api/playlists/{pl_lst['id']}/share",
+            {"shares": [{"username": "admin", "can_edit": True}]})
+    check("share: editor can add tracks",
+          api.req("POST", f"/api/playlists/{pl_lst['id']}/tracks",
+                  {"tracks": [tid]}).get("added") == 1)
+    check("share: editor cannot rename",
+          api.req("PATCH", f"/api/playlists/{pl_lst['id']}",
+                  {"name": "Stolen"}).get("__status") == 403)
+    check("share: editor cannot manage shares",
+          api.req("PUT", f"/api/playlists/{pl_lst['id']}/share",
+                  {"shares": []}).get("__status") == 403)
+    check("share: unknown user rejected",
+          lst.req("PUT", f"/api/playlists/{pl_lst['id']}/share",
+                  {"shares": [{"username": "nobody"}]}).get("__status") == 400)
+    check("share: owner entry rejected",
+          lst.req("PUT", f"/api/playlists/{pl_lst['id']}/share",
+                  {"shares": [{"username": "apitest_share"}]}).get("__status") == 400)
+
+    bk = json.loads(api.req("GET", "/api/backup", raw=True))
+    mine = [p for p in bk["playlists"] if p["name"] == "Friend Owns"]
+    check("share: backup carries owner+shares", bool(mine)
+          and mine[0]["owner"] == "apitest_share"
+          and any(s["username"] == "admin" for s in mine[0]["shares"]))
+    check("share: home is scoped",
+          all(p.get("is_mine") for p in lst.req("GET", "/api/home")["playlists"]))
+
+    for pid_ in (pl_adm["id"], lst_liked["id"], adm_liked["id"]):
+        api.req("DELETE", f"/api/playlists/{pid_}")
+    lst.req("DELETE", f"/api/playlists/{pl_lst['id']}")
+    users = api.req("GET", "/api/users")["users"]
+    sid = next(u["id"] for u in users if u["username"] == "apitest_share")
+    api.req("DELETE", f"/api/users/{sid}")
+    check("share: deleting user removes their playlists",
+          api.req("GET", f"/api/playlists/{pl_lst['id']}").get("__status") == 404)
+
     # ── guards ────────────────────────────────────────────────────
     anon = Api(BASE)
     for path, label in (("/api/stats?days=7", "stats"),

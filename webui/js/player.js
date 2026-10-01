@@ -459,7 +459,7 @@ export function updateLikeButtons(track) {
 
 export function isLiked(track) {
   if (!track) return false;
-  const liked = get('playlists').find(p => p.name === 'Liked');
+  const liked = get('playlists').find(p => p.is_mine && p.name === 'Liked');
   return !!(liked && liked.trackIds && liked.trackIds.includes(track.id));
 }
 

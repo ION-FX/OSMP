@@ -326,7 +326,8 @@ def import_preview(body: ImportPreviewIn):
 
 
 @router.post("/import/apply")
-def import_apply(body: ImportApplyIn):
+def import_apply(request: Request, body: ImportApplyIn):
+    user = require_user(request)
     with _imports_lock:
         pl = _imports.get(body.preview_id)
     if not pl or time.time() - pl["created"] > _IMPORT_TTL:
@@ -337,7 +338,8 @@ def import_apply(body: ImportApplyIn):
         items = [by_id[i] for i in dict.fromkeys(body.track_ids) if i in by_id]
         if not items:
             raise HTTPException(400, "No tracks selected")
-    pid = db.create_playlist(body.name or pl["title"] or "Imported playlist")
+    pid = db.create_playlist(body.name or pl["title"] or "Imported playlist",
+                             owner_id=user["id"])
     added = db.playlist_add_tracks(pid, items)
     return {"playlist_id": pid, "added": added, "total": len(pl["items"])}
 
@@ -647,6 +649,9 @@ async def library_stream_head(request: Request, video_id: str, fmt: str = ""):
 
 
 # --------------------------------------------------------------- playlists
+# Playlists belong to a user (v0.7.0). Visibility: owner + whoever the owner
+# shared with (view or edit). Everything else answers 404 so existence of a
+# playlist isn't leaked; a viewer who tries to edit gets 403.
 
 class PlaylistIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -675,39 +680,96 @@ class ReorderIn(BaseModel):
     order: list[str] = Field(min_length=1, max_length=1000)
 
 
-@router.get("/playlists")
-def playlists_list():
-    return {"playlists": db.list_playlists()}
+class ShareEntry(BaseModel):
+    username: str = Field(min_length=1, max_length=32)
+    can_edit: bool = False
 
 
-@router.post("/playlists")
-def playlists_create(body: PlaylistIn):
-    pid = db.create_playlist(body.name, body.description, body.kind)
-    pl = db.get_playlist(pid)
-    return pl
+class ShareIn(BaseModel):
+    shares: list[ShareEntry] = Field(default_factory=list, max_length=50)
 
 
-@router.get("/playlists/{playlist_id}")
-def playlists_get(playlist_id: int):
+def _pl_out(p: dict) -> dict:
+    return {
+        "id": p["id"], "name": p["name"], "description": p["description"],
+        "kind": p["kind"], "owner": p.get("owner"),
+        "is_mine": bool(p.get("is_mine", 0)),
+        "can_edit": bool(p.get("can_edit", 0)),
+        "track_count": p.get("track_count", 0),
+        "total_duration": p.get("total_duration", 0),
+        "created_at": p.get("created_at"), "updated_at": p.get("updated_at"),
+    }
+
+
+def _playlist_access(playlist_id: int, request: Request, need: str = "view"):
+    """Resolve (playlist, user, is_owner) or raise 404/403.
+
+    need='view' → owner or any share; need='edit' → owner or can_edit share;
+    need='owner' → owner only. Hidden playlists 404; visible-but-insufficient
+    answers 403.
+    """
+    user = require_user(request)
     pl = db.get_playlist(playlist_id)
     if not pl:
         raise HTTPException(404, "playlist not found")
-    pl["tracks"] = [_track_out(t) for t in pl["tracks"]]
-    return pl
+    if pl.get("owner_id") == user["id"]:
+        return pl, user, True
+    share = db.get_share(playlist_id, user["id"])
+    if share:
+        if need == "owner" or (need == "edit" and not share["can_edit"]):
+            raise HTTPException(403, "you don't have edit access to this playlist")
+        return pl, user, False
+    raise HTTPException(404, "playlist not found")
+
+
+@router.get("/playlists")
+def playlists_list(request: Request):
+    user = require_user(request)
+    rows = db.list_playlists_for_user(user["id"])
+    return {"playlists": [_pl_out(r) for r in rows]}
+
+
+@router.post("/playlists")
+def playlists_create(request: Request, body: PlaylistIn):
+    user = require_user(request)
+    pid = db.create_playlist(body.name, body.description, body.kind,
+                             owner_id=user["id"])
+    pl = db.get_playlist(pid)
+    out = _pl_out(pl)
+    out.update(is_mine=True, can_edit=True)
+    return out
+
+
+@router.get("/playlists/{playlist_id}")
+def playlists_get(playlist_id: int, request: Request):
+    pl, user, is_owner = _playlist_access(playlist_id, request)
+    if is_owner:
+        can_edit = True
+    else:
+        share = db.get_share(playlist_id, user["id"])
+        can_edit = bool(share and share["can_edit"])
+    out = _pl_out(pl)
+    out["is_mine"] = is_owner
+    out["can_edit"] = can_edit
+    out["tracks"] = [_track_out(t) for t in pl["tracks"]]
+    if is_owner:
+        out["shares"] = db.list_shares(playlist_id)
+    return out
 
 
 @router.patch("/playlists/{playlist_id}")
-def playlists_patch(playlist_id: int, body: PlaylistPatch):
-    if not db.get_playlist(playlist_id):
-        raise HTTPException(404, "playlist not found")
+def playlists_patch(playlist_id: int, request: Request, body: PlaylistPatch):
+    pl, user, is_owner = _playlist_access(playlist_id, request, need="owner")
     db.update_playlist(playlist_id, body.name, body.description)
-    return db.get_playlist(playlist_id)
+    out = _pl_out(db.get_playlist(playlist_id))
+    out.update(is_mine=True, can_edit=True)
+    return out
 
 
 @router.delete("/playlists/{playlist_id}")
-def playlists_delete(playlist_id: int):
-    if not db.delete_playlist(playlist_id):
-        raise HTTPException(404, "playlist not found")
+def playlists_delete(playlist_id: int, request: Request):
+    _playlist_access(playlist_id, request, need="owner")
+    db.delete_playlist(playlist_id)
     return {"ok": True}
 
 
@@ -736,9 +798,8 @@ def _enrich(tracks: list[TrackIn]) -> list[dict]:
 
 
 @router.post("/playlists/{playlist_id}/tracks")
-def playlists_add(playlist_id: int, body: TracksIn):
-    if not db.get_playlist(playlist_id):
-        raise HTTPException(404, "playlist not found")
+def playlists_add(playlist_id: int, request: Request, body: TracksIn):
+    _playlist_access(playlist_id, request, need="edit")
     tracks = _enrich(body.tracks)
     if not tracks:
         raise HTTPException(400, "no valid tracks")
@@ -747,18 +808,43 @@ def playlists_add(playlist_id: int, body: TracksIn):
 
 
 @router.delete("/playlists/{playlist_id}/tracks/{track_id}")
-def playlists_remove(playlist_id: int, track_id: str):
+def playlists_remove(playlist_id: int, request: Request, track_id: str):
+    _playlist_access(playlist_id, request, need="edit")
     if not db.playlist_remove_track(playlist_id, track_id):
         raise HTTPException(404, "track not in playlist")
     return {"ok": True}
 
 
 @router.put("/playlists/{playlist_id}/tracks")
-def playlists_reorder(playlist_id: int, body: ReorderIn):
-    if not db.get_playlist(playlist_id):
-        raise HTTPException(404, "playlist not found")
+def playlists_reorder(playlist_id: int, request: Request, body: ReorderIn):
+    _playlist_access(playlist_id, request, need="edit")
     db.playlist_reorder(playlist_id, body.order)
     return {"ok": True}
+
+
+@router.put("/playlists/{playlist_id}/share")
+def playlists_share(playlist_id: int, request: Request, body: ShareIn):
+    """Owner-only: replace the share set. Shares to unknown users or to the
+    owner themself are rejected."""
+    pl, user, is_owner = _playlist_access(playlist_id, request, need="owner")
+    resolved = []
+    for entry in body.shares:
+        u = auth.find_user(entry.username)
+        if not u or not u["active"]:
+            raise HTTPException(400, f"no such user: {entry.username}")
+        if u["id"] == pl["owner_id"]:
+            raise HTTPException(400, "the owner already has full access")
+        resolved.append((u["id"], entry.can_edit))
+    db.set_shares(playlist_id, resolved)
+    return {"ok": True, "shares": db.list_shares(playlist_id)}
+
+
+@router.get("/users/brief")
+def users_brief(request: Request):
+    """Active usernames for the share picker — id + username only."""
+    require_user(request)
+    return {"users": [{"id": u["id"], "username": u["username"]}
+                      for u in auth.list_users() if u["active"]]}
 
 
 # --------------------------------------------------------------- smart playlists
@@ -977,10 +1063,13 @@ def history_record(request: Request, body: HistoryIn):
 @router.get("/home")
 def home(request: Request):
     user = current_user(request)
-    uid = str(user["id"]) if user else "local"
-    recent = [_track_out(t) for t in db.recent_history(12, user_id=uid)]
+    uid = user["id"] if user else None
+    recent = [_track_out(t) for t in db.recent_history(12, user_id=str(uid or "local"))]
     offline = [_track_out(t) for t in db.list_tracks(offline_only=True, limit=8)]
-    playlists = db.list_playlists()[:8]
+    if uid is not None:
+        playlists = [_pl_out(r) for r in db.list_playlists_for_user(uid)][:8]
+    else:
+        playlists = []
     stats = {
         "library_tracks": len(db.list_tracks(offline_only=True, limit=10000)),
         "playlists": len(db.list_playlists()),

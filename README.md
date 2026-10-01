@@ -27,8 +27,10 @@
 - **True offline** — download tracks server-side into your library, or
   on-device in the Android app. Downloads play with the network unplugged.
 - **Accounts & multi-user** — the admin owns the box; invite listeners with
-  their own login and history. Sessions survive restarts; clients (web,
-  Android, Linux) sign in once.
+  their own login, history **and their own playlists**. Playlists are
+  per-person; share any of yours with specific friends as view-only or
+  can-edit (collaborative lists). Sessions survive restarts; clients (web,
+  Android, Linux, Windows) sign in once.
 - **Radio that understands seeds** — give it a song, artist or mood; it walks
   YouTube's own recommendation graph, dedupes, spreads artists, ranks by
   relevance. No API key, no rate limits.

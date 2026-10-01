@@ -45,29 +45,43 @@ export function renderSidebarPlaylists() {
     host.innerHTML = `<div class="faint" style="padding:10px 12px;font-size:12.5px">No playlists yet</div>`;
     return;
   }
+  const mine = pls.filter(p => p.is_mine);
+  const shared = pls.filter(p => !p.is_mine);
   host.innerHTML = '';
-  pls.forEach(p => {
+  const addItem = (p) => {
     const a = document.createElement('a');
     a.className = 'pl-item';
     a.href = `#/playlist/${p.id}`;
-    a.innerHTML = `<span class="pl-ico">${icon(p.name === 'Liked' ? 'heart' : 'music', 16, p.name === 'Liked')}</span><span class="pl-name"></span>`;
+    a.innerHTML = `<span class="pl-ico">${icon(p.name === 'Liked' && p.is_mine ? 'heart' : 'music', 16, p.name === 'Liked' && p.is_mine)}</span><span class="pl-name"></span>`;
     a.querySelector('.pl-name').textContent = p.name;
+    if (!p.is_mine) a.title = `Shared by ${p.owner || 'someone'}`;
     if (get('route').name === 'playlist' && String(get('route').params.id) === String(p.id)) {
       a.classList.add('active');
     }
     host.appendChild(a);
-  });
+  };
+  mine.forEach(addItem);
+  if (shared.length) {
+    const label = document.createElement('div');
+    label.className = 'faint';
+    label.style.cssText = 'padding:10px 12px 2px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase';
+    label.textContent = 'Shared with you';
+    host.appendChild(label);
+    shared.forEach(addItem);
+  }
 }
 
 // ── like (Favorites) ─────────────────────────────────────────────────
 
 export async function ensureLikedPlaylist() {
-  let liked = get('playlists').find(p => p.name === 'Liked');
+  // per-user since v0.7.0 — every account gets its own "Liked"
+  let liked = get('playlists').find(p => p.is_mine && p.name === 'Liked');
   if (!liked) {
     liked = await api.createPlaylist('Liked', 'Tracks you hearted', 'user');
     liked.trackIds = [];
+    liked.is_mine = true;
     await refreshPlaylists();
-    liked = get('playlists').find(p => p.name === 'Liked');
+    liked = get('playlists').find(p => p.is_mine && p.name === 'Liked');
   }
   return liked;
 }
@@ -390,7 +404,8 @@ export async function removeDeviceOffline(track) {
 export function addToPlaylistDialog(tracks) {
   const list = Array.isArray(tracks) ? tracks : [tracks];
   refreshPlaylists().then(() => {
-    const pls = get('playlists');
+    // only playlists this account may edit; shared read-only ones are excluded
+    const pls = get('playlists').filter(p => p.can_edit);
     const items = pls.map(p => `
       <div class="modal-item" data-pid="${p.id}">
         <span style="color:var(--accent-bright);display:flex">${icon(p.name === 'Liked' ? 'heart' : 'music', 18)}</span>

@@ -7,7 +7,7 @@ import { icon } from '../components/icons.js';
 import { toast, toastOk, toastErr } from '../components/toast.js';
 import { renderTracklist, skeletonTracklist } from '../components/tracklist.js';
 import { refreshPlaylists, addToPlaylistDialog, downloadAllTracks, isTrackOffline } from '../actions.js';
-import { confirmDialog, promptDialog } from '../components/dialog.js';
+import { confirmDialog, promptDialog, customDialog } from '../components/dialog.js';
 import { dominantHues } from '../theme.js';
 
 export async function mount(root, params) {
@@ -32,6 +32,8 @@ export async function mount(root, params) {
 
   const tracks = pl.tracks;
   const coverSrc = tracks.length ? thumbUrl(tracks[0]) : null;
+  const isOwner = !!pl.is_mine;
+  const canEdit = !!pl.can_edit;
 
   host.innerHTML = `
     <div class="detail-head" id="pl-head">
@@ -39,7 +41,7 @@ export async function mount(root, params) {
         ? `<img class="detail-cover" id="pl-cover" src="${coverSrc}" alt="" onerror="__thumbErr(this)">`
         : `<div class="detail-cover" id="pl-cover" style="display:flex;align-items:center;justify-content:center;background:var(--grad);color:#fff">${icon('music', 54)}</div>`}
       <div class="detail-meta grow">
-        <div class="detail-kind">Playlist${pl.kind === 'radio' ? ' · radio' : ''}</div>
+        <div class="detail-kind" id="pl-kind"></div>
         <h1 id="pl-name"></h1>
         <div class="detail-sub">
           <span id="pl-desc"></span>
@@ -51,10 +53,12 @@ export async function mount(root, params) {
         <div class="detail-actions">
           <button class="play-big" id="pl-play" title="Play">${icon('play', 22, true)}</button>
           <button class="btn ghost" id="pl-shuffle">${icon('shuffle', 15)} Shuffle</button>
-          <button class="btn ghost" id="pl-add">${icon('plus', 15)} Add tracks</button>
+          ${canEdit ? `<button class="btn ghost" id="pl-add">${icon('plus', 15)} Add tracks</button>` : ''}
           <button class="btn ghost" id="pl-dlall" title="Download every track to the server library">${icon('download', 15)} Download all</button>
-          <button class="icon-btn" id="pl-rename" title="Rename">${icon('edit', 17)}</button>
-          <button class="icon-btn" id="pl-delete" title="Delete playlist">${icon('trash', 17)}</button>
+          ${isOwner ? `
+            <button class="btn ghost" id="pl-share" title="Share with other accounts">${icon('user', 15)} Share</button>
+            <button class="icon-btn" id="pl-rename" title="Rename">${icon('edit', 17)}</button>
+            <button class="icon-btn" id="pl-delete" title="Delete playlist">${icon('trash', 17)}</button>` : ''}
         </div>
       </div>
     </div>
@@ -63,6 +67,9 @@ export async function mount(root, params) {
     </div>
     <div id="pl-list"></div>`;
 
+  host.querySelector('#pl-kind').innerHTML =
+    `Playlist${pl.kind === 'radio' ? ' · radio' : ''}${isOwner ? '' : ` · by <b></b>${canEdit ? ' · you can edit' : ' · view only'}`}`;
+  if (!isOwner) host.querySelector('#pl-kind b').textContent = pl.owner || 'someone';
   host.querySelector('#pl-name').textContent = pl.name;
   host.querySelector('#pl-desc').textContent = pl.description || '';
   if (!pl.description) host.querySelector('#pl-desc').style.display = 'none';
@@ -133,7 +140,7 @@ export async function mount(root, params) {
 
   function renderList() {
     renderTracklist(listHost, displayTracks(), {
-      reorderable: sortOrder === 'playlist',
+      reorderable: canEdit && sortOrder === 'playlist',
       onReorder: async (ids) => {
         try {
           await api.reorderPlaylist(id, ids);
@@ -145,7 +152,7 @@ export async function mount(root, params) {
           renderList();
         }
       },
-      onRemove: async (t) => {
+      onRemove: canEdit ? async (t) => {
         try {
           await api.removeFromPlaylist(id, t.id);
           tracks.splice(tracks.indexOf(t), 1);
@@ -153,7 +160,7 @@ export async function mount(root, params) {
           refreshPlaylists();
           toast(`Removed “${t.title}”`, { icon: 'trash' });
         } catch (e) { toastErr('Remove failed'); }
-      },
+      } : null,
     });
   }
 
@@ -163,10 +170,10 @@ export async function mount(root, params) {
   host.querySelector('#pl-shuffle').onclick = () => {
     if (tracks.length) import('../player.js').then(p => p.playTracks(tracks, 0, { shuffle: true, random: true }));
   };
-  host.querySelector('#pl-add').onclick = () => {
+  host.querySelector('#pl-add')?.addEventListener('click', () => {
     location.hash = '#/search';
     toast('Search for tracks, then ⋮ → Add to playlist', { icon: 'search', timeout: 5200 });
-  };
+  });
   const dlAllBtn = host.querySelector('#pl-dlall');
   dlAllBtn.onclick = async () => {
     const pending = tracks.filter(t => !isTrackOffline(t));
@@ -191,7 +198,7 @@ export async function mount(root, params) {
     delete dlAllBtn.dataset.n;
     dlAllBtn.innerHTML = `${icon('download', 15)} Download all`;
   };
-  host.querySelector('#pl-rename').onclick = async () => {
+  host.querySelector('#pl-rename')?.addEventListener('click', async () => {
     const name = await promptDialog({ title: 'Rename playlist', value: pl.name, placeholder: 'New name', confirmLabel: 'Rename' });
     if (!name) return;
     try {
@@ -200,8 +207,9 @@ export async function mount(root, params) {
       refreshPlaylists();
       toastOk('Renamed');
     } catch (e) { toastErr('Rename failed'); }
-  };
-  host.querySelector('#pl-delete').onclick = async () => {
+  });
+  host.querySelector('#pl-share')?.addEventListener('click', () => openShareDialog(pl, host));
+  host.querySelector('#pl-delete')?.addEventListener('click', async () => {
     const ok = await confirmDialog({
       title: `Delete “${pl.name}”?`,
       message: `${tracks.length} tracks will be removed from this playlist. Downloads stay in your library.`,
@@ -214,9 +222,107 @@ export async function mount(root, params) {
       toastOk('Playlist deleted');
       location.hash = '#/library';
     } catch (e) { toastErr('Delete failed'); }
-  };
+  });
 
   return {};
+}
+
+// Owner-only share editor: pick accounts, grant view or edit, save the set.
+async function openShareDialog(pl, host) {
+  let users = [];
+  try { users = (await api.usersBrief()).users; } catch { /* offline */ }
+  const shares = (pl.shares || []).map(s => ({ ...s }));
+  const eligible = () => users.filter(u =>
+    u.username !== pl.owner && !shares.some(s => s.username === u.username));
+
+  customDialog({
+    title: `Share “${pl.name}”`,
+    bodyHtml: `
+      <p class="dim" style="font-size:12.5px;margin-bottom:10px">
+        Friends see this playlist in their sidebar. <b>Can edit</b> lets them add,
+        remove and reorder tracks — renaming and deleting stay yours.</p>
+      <div id="sh-rows"></div>
+      <div class="row gap-s" style="margin-top:14px;align-items:center;flex-wrap:wrap">
+        <select id="sh-user" class="input" style="width:auto;min-width:160px"></select>
+        <label class="row gap-s" style="font-size:13px;cursor:pointer">
+          <input type="checkbox" id="sh-edit"> can edit
+        </label>
+        <button class="btn ghost" id="sh-add">${icon('plus', 14)} Add</button>
+      </div>`,
+    actionsHtml: `
+      <button class="btn ghost" data-act="cancel">Cancel</button>
+      <button class="btn primary" data-act="save">Save</button>`,
+  }, (root, close) => {
+    const rows = root.querySelector('#sh-rows');
+    const userSel = root.querySelector('#sh-user');
+    const editBox = root.querySelector('#sh-edit');
+
+    const paintRows = () => {
+      rows.innerHTML = '';
+      if (!shares.length) {
+        const hint = document.createElement('div');
+        hint.className = 'faint';
+        hint.style.cssText = 'font-size:13px;padding:4px 0';
+        hint.textContent = 'Not shared with anyone yet.';
+        rows.appendChild(hint);
+      }
+      shares.forEach((s, i) => {
+        const row = document.createElement('div');
+        row.className = 'row gap-s';
+        row.style.cssText = 'align-items:center;padding:5px 0';
+        row.innerHTML = `<span class="grow ellipsis"></span>
+          <label class="row gap-s" style="font-size:13px;cursor:pointer">
+            <input type="checkbox"${s.can_edit ? ' checked' : ''}> can edit
+          </label>
+          <button class="icon-btn sm" title="Stop sharing"></button>`;
+        row.querySelector('.ellipsis').textContent = s.username;
+        row.querySelector('input').onchange = (e) => { s.can_edit = e.target.checked; };
+        row.querySelector('button').innerHTML = icon('close', 14);
+        row.querySelector('button').onclick = () => { shares.splice(i, 1); paintRows(); paintSelect(); };
+        rows.appendChild(row);
+      });
+    };
+    const paintSelect = () => {
+      userSel.innerHTML = '';
+      const pool = eligible();
+      if (!pool.length) {
+        const o = document.createElement('option');
+        o.textContent = users.length ? 'everyone already added' : 'no other accounts';
+        userSel.appendChild(o);
+        userSel.disabled = true;
+        root.querySelector('#sh-add').disabled = true;
+      } else {
+        userSel.disabled = false;
+        root.querySelector('#sh-add').disabled = false;
+        pool.forEach(u => {
+          const o = document.createElement('option');
+          o.value = u.username;
+          o.textContent = u.username;
+          userSel.appendChild(o);
+        });
+      }
+    };
+    root.querySelector('#sh-add').onclick = () => {
+      const name = userSel.value;
+      if (!name || !eligible().some(u => u.username === name)) return;
+      shares.push({ username: name, can_edit: editBox.checked });
+      editBox.checked = false;
+      paintRows(); paintSelect();
+    };
+    paintRows(); paintSelect();
+
+    root.querySelector('[data-act="cancel"]').onclick = () => close(null);
+    root.querySelector('[data-act="save"]').onclick = async () => {
+      try {
+        const res = await api.sharePlaylist(pl.id, shares);
+        pl.shares = res.shares || [];
+        close(true);
+        toastOk(pl.shares.length
+          ? `Shared with ${pl.shares.length} account${pl.shares.length === 1 ? '' : 's'}`
+          : 'Sharing removed', { icon: 'user' });
+      } catch (e) { toastErr(e.detail || 'Share failed'); }
+    };
+  });
 }
 
 function escapeHtml(s) {

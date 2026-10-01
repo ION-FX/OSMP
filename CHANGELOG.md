@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.7.0 — 2026-09-30
+
+The per-user playlists release: every account gets their own lists, and
+sharing turns them collaborative when you want.
+
+### Added
+- **Playlists are per-person.** Each account's sidebar shows their own
+  playlists (plus a "Shared with you" section when applicable); the same
+  playlist name can exist in several accounts — including "Liked", which is
+  now per-user instead of one global bucket every listener's hearts fell into.
+- **Sharing with permissions.** A playlist's owner opens Share, picks any
+  account, and grants view or can-edit. Editors add/remove/reorder tracks;
+  renaming, deleting and re-sharing stay with the owner. Unshared lists are
+  invisible to everyone else (404, not 403 — existence isn't leaked).
+- **Share dialog** on every owned playlist: add accounts from a picker,
+  toggle can-edit, remove, save the whole set at once.
+- Library and home cards show "by <owner>" on playlists that aren't yours;
+  the add-to-playlist picker only offers lists you can edit.
+- Backups now carry owner + shares (matched by username on restore).
+
+### Internals
+- `playlists.owner_id` (migrated in place: existing playlists went to the
+  first admin) + `playlist_shares` table; deleting an account removes its
+  playlists and share rows via cascades.
+- New routes: `PUT /api/playlists/{id}/share` (owner-only) and
+  `GET /api/users/brief` (share picker); all playlist routes now
+  permission-checked. `/api/home` playlists are scoped too.
 ## v0.6.0 — 2026-09-30
 
 The Windows release: the desktop client now ships for Windows too, built

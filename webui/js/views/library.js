@@ -214,8 +214,11 @@ async function renderPlaylists() {
         <button class="card-play" title="Open">${icon('play', 18, true)}</button>
       </div>
       <div class="card-title ellipsis"></div>
-      <div class="card-sub">${p.track_count} tracks · ${fmtDurLong(p.total_duration)}</div>`;
+      <div class="card-sub"></div>`;
     card.querySelector('.card-title').textContent = p.name;
+    card.querySelector('.card-sub').textContent = p.is_mine
+      ? `${p.track_count} tracks · ${fmtDurLong(p.total_duration)}`
+      : `by ${p.owner || '?'} · ${p.track_count} tracks`;
     card.onclick = () => { location.hash = `#/playlist/${p.id}`; };
     host.appendChild(card);
   });

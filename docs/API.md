@@ -56,16 +56,23 @@ listeners, `401` when unauthenticated.
 
 ## Playlists
 
+Playlists belong to an account. Visibility = owner + whoever they shared
+with; anything else answers `404` (existence isn't leaked), and a viewer
+who tries to edit gets `403`. List rows carry `owner`, `is_mine`,
+`can_edit`. Every account has its own "Liked".
+
 | Route | Notes |
 |---|---|
-| `GET /playlists` | list with counts |
-| `POST /playlists` | `{name, description?, kind?}` |
-| `GET /playlists/{id}` | full playlist incl. ordered tracks |
-| `PATCH /playlists/{id}` | rename / redescription |
-| `DELETE /playlists/{id}` | |
-| `POST /playlists/{id}/tracks` | `{tracks: [metadata dicts]}` (appends, dedupes) |
-| `DELETE /playlists/{id}/tracks/{track_id}` | |
-| `PUT /playlists/{id}/tracks` | `{order: [ids]}` — full reorder |
+| `GET /playlists` | **yours first, then shared with you** — with counts and permission flags |
+| `POST /playlists` | `{name, description?, kind?}` — owned by the signed-in user |
+| `GET /playlists/{id}` | full playlist incl. ordered tracks; owners also get `shares` |
+| `PATCH /playlists/{id}` | rename / redescription — owner only |
+| `DELETE /playlists/{id}` | owner only (also deletes the user's playlists when an account is deleted) |
+| `POST /playlists/{id}/tracks` | `{tracks: [metadata dicts]}` — owner or `can_edit` share |
+| `DELETE /playlists/{id}/tracks/{track_id}` | owner or `can_edit` share |
+| `PUT /playlists/{id}/tracks` | `{order: [ids]}` full reorder — owner or `can_edit` share |
+| `PUT /playlists/{id}/share` | owner only. `{shares: [{username, can_edit}]}` — replaces the whole share set |
+| `GET /users/brief` | `{users: [{id, username}]}` for the share picker (any signed-in user) |
 
 ## Radio & AI
 

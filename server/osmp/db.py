@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS playlists(
   name        TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   kind        TEXT NOT NULL DEFAULT 'user',
+  owner_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
   created_at  REAL NOT NULL,
   updated_at  REAL NOT NULL
 );
@@ -87,6 +88,12 @@ CREATE TABLE IF NOT EXISTS smart_playlists(
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS playlist_shares(
+  playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  can_edit    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(playlist_id, user_id)
+);
 """
 
 _MIGRATIONS = (
@@ -134,6 +141,16 @@ def init_db(cfg: Config | None = None) -> None:
                     conn.execute(stmt)
                 except sqlite3.OperationalError:
                     pass  # already applied under a different shape
+            # per-user playlists (v0.7.0): add owner to pre-existing tables and
+            # hand every unowned playlist to the first admin
+            pl_cols = {r[1] for r in conn.execute("PRAGMA table_info(playlists)")}
+            if "owner_id" not in pl_cols:
+                conn.execute(
+                    "ALTER TABLE playlists ADD COLUMN owner_id INTEGER REFERENCES users(id)")
+            conn.execute(
+                """UPDATE playlists SET owner_id=
+                     (SELECT MIN(id) FROM users WHERE role='admin' AND active=1)
+                   WHERE owner_id IS NULL""")
         _initialized = True
 
 
@@ -418,19 +435,29 @@ def export_library(cfg: Config | None = None) -> dict:
             """SELECT id, title, artist, duration, thumbnail, play_count
                FROM tracks""").fetchall()
         playlists = conn.execute(
-            "SELECT id, name, description, kind, created_at FROM playlists "
-            "ORDER BY created_at").fetchall()
+            """SELECT p.id, p.name, p.description, p.kind, p.created_at,
+                      COALESCE(u.username, '') AS owner
+               FROM playlists p LEFT JOIN users u ON u.id=p.owner_id
+               ORDER BY p.created_at""").fetchall()
         entries = conn.execute(
             """SELECT playlist_id, track_id, position FROM playlist_tracks
                ORDER BY playlist_id, position""").fetchall()
+        share_rows = conn.execute(
+            """SELECT s.playlist_id, u.username, s.can_edit
+               FROM playlist_shares s JOIN users u ON u.id=s.user_id""").fetchall()
     ids_by_pl: dict[int, list[str]] = {}
     for e in entries:
         ids_by_pl.setdefault(e["playlist_id"], []).append(e["track_id"])
+    shares_by_pl: dict[int, list[dict]] = {}
+    for s in share_rows:
+        shares_by_pl.setdefault(s["playlist_id"], []).append(
+            {"username": s["username"], "can_edit": bool(s["can_edit"])})
     settings = {k: v for k, v in all_settings(cfg).items()
                 if k in _PUBLIC_SAFE}
     return {
         "tracks": [dict(t) for t in tracks],
-        "playlists": [{**dict(p), "track_ids": ids_by_pl.get(p["id"], [])}
+        "playlists": [{**dict(p), "track_ids": ids_by_pl.get(p["id"], []),
+                       "shares": shares_by_pl.get(p["id"], [])}
                       for p in playlists],
         "settings": settings,
     }
@@ -438,38 +465,70 @@ def export_library(cfg: Config | None = None) -> dict:
 
 def import_library(data: dict, cfg: Config | None = None) -> dict:
     """Merge a backup into this instance: upsert track metadata, recreate any
-    playlist whose name doesn't exist yet, and report what happened."""
+    playlist whose (owner, name) pair doesn't exist yet, restore shares, and
+    report what happened. Owners/shares are matched by username; unknown
+    usernames fall back to the first admin (owner) or are skipped (shares)."""
     cfg = cfg or get_config()
+
+    def uid_of(username: str | None) -> int | None:
+        if not username:
+            return None
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT id FROM users WHERE username=? COLLATE NOCASE AND active=1",
+                (username,)).fetchone()
+        return row[0] if row else None
+
     track_meta = {}
     for t in data.get("tracks") or []:
         if isinstance(t, dict) and t.get("id"):
             track_meta[t["id"]] = t
             upsert_track(t, cfg)
-    existing = {p["name"]: p["id"]
-                for p in list_playlists(cfg)}
+    with _connect(cfg) as conn:
+        existing = {(r["owner"] or "", r["name"]): r["id"] for r in conn.execute(
+            """SELECT p.id, p.name, COALESCE(u.username, '') AS owner
+               FROM playlists p LEFT JOIN users u ON u.id=p.owner_id""")}
+    fallback_admin: int | None = None
+    with _connect(cfg) as conn:
+        row = conn.execute(
+            "SELECT MIN(id) FROM users WHERE role='admin' AND active=1").fetchone()
+        fallback_admin = row[0] if row else None
     created, merged, skipped = 0, 0, 0
     for pl in data.get("playlists") or []:
         name = (pl.get("name") or "").strip()
         ids = [i for i in (pl.get("track_ids") or []) if i in track_meta]
         if not name:
             continue
-        if name in existing:
+        owner_name = pl.get("owner") or ""
+        owner_id = uid_of(owner_name) or fallback_admin
+        key = (owner_name, name)
+        if key in existing:
+            pid = existing[key]
             existing_ids = {t["id"] for t in
-                            (get_playlist(existing[name], cfg) or {}).get("tracks", [])}
+                            (get_playlist(pid, cfg) or {}).get("tracks", [])}
             add = [i for i in ids if i not in existing_ids]
             if add:
-                playlist_add_tracks(existing[name],
-                                    [track_meta[i] for i in add], cfg)
+                playlist_add_tracks(pid, [track_meta[i] for i in add], cfg)
                 merged += 1
             else:
                 skipped += 1
         else:
             pid = create_playlist(name, pl.get("description") or "",
-                                  pl.get("kind") or "user", cfg)
+                                  pl.get("kind") or "user", owner_id, cfg)
             if ids:
                 playlist_add_tracks(pid, [track_meta[i] for i in ids], cfg)
-            existing[name] = pid
+            existing[key] = pid
             created += 1
+        # shares (matched by username; owner and unknown users skipped)
+        share_ids = []
+        for s in pl.get("shares") or []:
+            if not isinstance(s, dict):
+                continue
+            uid = uid_of(s.get("username"))
+            if uid and uid != owner_id:
+                share_ids.append((uid, bool(s.get("can_edit"))))
+        if share_ids:
+            set_shares(pid, share_ids, cfg)
     for key, value in (data.get("settings") or {}).items():
         if key in _PUBLIC_SAFE:
             set_setting(key, value, cfg)
@@ -480,13 +539,19 @@ def import_library(data: dict, cfg: Config | None = None) -> dict:
 # ---------------------------------------------------------------- playlists
 
 def create_playlist(name: str, description: str = "", kind: str = "user",
+                    owner_id: int | None = None,
                     cfg: Config | None = None) -> int:
     cfg = cfg or get_config()
     now = time.time()
     with _connect(cfg) as conn:
+        if owner_id is None:  # legacy callers — hand to the first admin
+            row = conn.execute(
+                "SELECT MIN(id) FROM users WHERE role='admin' AND active=1").fetchone()
+            owner_id = row[0] if row else None
         cur = conn.execute(
-            "INSERT INTO playlists(name, description, kind, created_at, updated_at) VALUES(?,?,?,?,?)",
-            (name.strip() or "Untitled", description.strip(), kind, now, now))
+            "INSERT INTO playlists(name, description, kind, owner_id, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (name.strip() or "Untitled", description.strip(), kind, owner_id, now, now))
         return int(cur.lastrowid)
 
 
@@ -512,11 +577,73 @@ def get_playlist(playlist_id: int, cfg: Config | None = None) -> dict | None:
         trows = conn.execute(
             """SELECT t.* FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id
                WHERE pt.playlist_id=? ORDER BY pt.position ASC""", (playlist_id,)).fetchall()
+        urow = conn.execute("SELECT username FROM users WHERE id=?",
+                            (prow["owner_id"],)).fetchone()
     pl = dict(prow)
+    pl["owner"] = urow["username"] if urow else None
     pl["tracks"] = [dict(r) for r in trows]
     pl["track_count"] = len(pl["tracks"])
     pl["total_duration"] = sum(t.get("duration") or 0 for t in pl["tracks"])
     return pl
+
+
+def list_playlists_for_user(user_id: int, cfg: Config | None = None) -> list[dict]:
+    """The playlists a user may see: their own (first) + ones shared with them.
+
+    is_mine/can_edit come straight from SQL so the API layer can pass them
+    through untouched.
+    """
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            """SELECT p.*, u.username AS owner,
+                     (p.owner_id = :uid) AS is_mine,
+                     (CASE WHEN p.owner_id = :uid THEN 1
+                           ELSE COALESCE(s.can_edit, 0) END) AS can_edit,
+                     COUNT(pt.track_id) AS track_count,
+                     COALESCE(SUM(t.duration),0) AS total_duration
+               FROM playlists p
+               JOIN users u ON u.id = p.owner_id
+               LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id
+               LEFT JOIN tracks t ON t.id=pt.track_id
+               LEFT JOIN playlist_shares s ON s.playlist_id=p.id AND s.user_id=:uid
+               WHERE p.owner_id = :uid OR s.user_id = :uid
+               GROUP BY p.id
+               ORDER BY is_mine DESC, p.updated_at DESC""",
+            {"uid": user_id}).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_share(playlist_id: int, user_id: int,
+              cfg: Config | None = None) -> dict | None:
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        row = conn.execute(
+            "SELECT * FROM playlist_shares WHERE playlist_id=? AND user_id=?",
+            (playlist_id, user_id)).fetchone()
+    return dict(row) if row else None
+
+
+def list_shares(playlist_id: int, cfg: Config | None = None) -> list[dict]:
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        rows = conn.execute(
+            """SELECT s.user_id, u.username, s.can_edit
+               FROM playlist_shares s JOIN users u ON u.id=s.user_id
+               WHERE s.playlist_id=? ORDER BY u.username""", (playlist_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_shares(playlist_id: int, shares: list[tuple[int, bool]],
+               cfg: Config | None = None) -> None:
+    """Replace the whole share set: shares = [(user_id, can_edit), ...]."""
+    cfg = cfg or get_config()
+    with _connect(cfg) as conn:
+        conn.execute("DELETE FROM playlist_shares WHERE playlist_id=?", (playlist_id,))
+        for uid, can_edit in shares:
+            conn.execute(
+                "INSERT OR IGNORE INTO playlist_shares(playlist_id, user_id, can_edit) "
+                "VALUES(?,?,?)", (playlist_id, uid, 1 if can_edit else 0))
 
 
 def update_playlist(playlist_id: int, name: str | None = None, description: str | None = None,

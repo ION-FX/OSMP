@@ -137,6 +137,9 @@ export const api = {
     req(`/api/playlists/${id}/tracks/${encodeURIComponent(trackId)}`, { method: 'DELETE' }),
   reorderPlaylist: (id, order) =>
     req(`/api/playlists/${id}/tracks`, { method: 'PUT', body: { order } }),
+  sharePlaylist: (id, shares) =>
+    req(`/api/playlists/${id}/share`, { method: 'PUT', body: { shares } }),
+  usersBrief:    () => req('/api/users/brief'),
 
   // import from YouTube playlists/albums/channels
   importPreview: (url) => req('/api/import/preview', { method: 'POST', body: { url } }),

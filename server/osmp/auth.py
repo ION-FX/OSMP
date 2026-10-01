@@ -133,11 +133,13 @@ def admin_count(cfg: Config | None = None) -> int:
 
 
 def delete_user(user_id: int, cfg: Config | None = None) -> None:
-    """Remove a user and their sessions/history. The last admin cannot be deleted."""
+    """Remove a user, their sessions/history and their playlists (shares and
+    track links cascade). The last admin cannot be deleted."""
     victim = get_user(user_id, cfg)
     if victim and victim["role"] == "admin" and admin_count(cfg) <= 1:
         raise ValueError("cannot delete the last admin")
     with _conn(cfg) as conn:
+        conn.execute("DELETE FROM playlists WHERE owner_id=?", (user_id,))
         conn.execute("DELETE FROM users WHERE id=?", (user_id,))
         conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
         conn.execute("DELETE FROM history WHERE user_id=?", (user_id,))
