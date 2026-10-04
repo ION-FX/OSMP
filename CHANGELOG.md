@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.7.1 — 2026-10-04
+
+The idle-resource release: the desktop client no longer burns a CPU core
+(or stacks duplicate processes) while you're not using it.
+
+### Fixed
+- **Idle CPU**: the desktop client kept compositing at full speed with
+  nothing happening — the aurora background drifted forever (forcing every
+  blurred surface to re-render at 60fps) and the progress bar ran a
+  requestAnimationFrame loop writing DOM even while paused. Decorative
+  animation now freezes whenever nothing is playing, and the progress bar
+  is event-driven (rAF only while audio actually plays, text updates only
+  when the displayed value changes). Verified: the "doing nothing" state
+  no longer produces any UI damage.
+- **Duplicate instances**: the window closes to the tray, so launching the
+  AppImage again used to start a *second* full process (each bundling a Qt
+  engine — and in local mode a whole server). A single-instance guard now
+  focuses the running window instead; launching again brings OSMP to the
+  front.
+
+If your desktop had been showing multi-GB memory use, check the tray —
+pre-update instances may have piled up; quitting them (or logging out)
+clears it, and the guard prevents new ones.
 ## v0.7.0 — 2026-09-30
 
 The per-user playlists release: every account gets their own lists, and

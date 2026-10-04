@@ -164,6 +164,13 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
 @keyframes drift-2 { to { transform: translate3d(-12vmax, 16vmax, 0) scale(1.1); } }
 @keyframes drift-3 { to { transform: translate3d(10vmax, -12vmax, 0) scale(1.22); } }
 
+/* Decorative motion freezes while nothing plays (body.media-idle, toggled by
+   the player). A paused music app has no reason to keep the compositor busy:
+   the drifting blobs would otherwise force every backdrop-filtered surface
+   (player bar, sidebar) to re-blur at 60 fps even at idle. */
+body.media-idle .blob,
+body.media-idle .np-cover { animation-play-state: paused; }
+
 /* ——— boot splash ——— */
 #boot-splash {
   position: fixed; inset: 0; z-index: 1000;

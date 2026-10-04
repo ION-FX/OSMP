@@ -386,6 +386,10 @@ function updatePlayButton() {
   void el.play.offsetWidth; // restart animation
   el.play.classList.add('spin-in');
   document.querySelectorAll('.eqbars').forEach(eq => eq.classList.toggle('paused', !playing));
+  // decorative motion (aurora blobs, cover breathing) freezes whenever
+  // nothing is playing — an idle music app shouldn't keep the compositor busy
+  document.body.classList.toggle('media-idle', !playing);
+  if (playing) startProgressLoop(); else stopProgressLoop();
   notifyMediaState();
 }
 
@@ -509,25 +513,43 @@ function updateSleepUi() {
 
 // progress bar ------------------------------------------------------------
 
+// Event-driven: rAF only while audio is actually playing; every other state
+// paints once from events (timeupdate/seeked/durationchange). Text writes
+// are gated on change so a running loop doesn't restyle DOM 60×/s.
 let rafId = null;
+let lastPaint = { cur: '', dur: '', pct: -1 };
+
+function paintProgress() {
+  const a = audio();
+  if (!a.duration || !isFinite(a.duration)) return;
+  const pct = (a.currentTime / a.duration) * 100;
+  if (Math.abs(pct - lastPaint.pct) > 0.02) {
+    el.played.style.width = `${pct}%`;
+    el.progress.setAttribute('aria-valuenow', Math.round(pct));
+    lastPaint.pct = pct;
+  }
+  const cur = fmtTime(a.currentTime);
+  const dur = fmtTime(a.duration);
+  if (cur !== lastPaint.cur) { el.cur.textContent = cur; lastPaint.cur = cur; }
+  if (dur !== lastPaint.dur) { el.dur.textContent = dur; lastPaint.dur = dur; }
+  if (a.buffered.length) {
+    const end = a.buffered.end(a.buffered.length - 1);
+    el.buffered.style.width = `${Math.min(100, (end / a.duration) * 100)}%`;
+  }
+}
+
 function startProgressLoop() {
   if (rafId) return;
   const loop = () => {
     rafId = requestAnimationFrame(loop);
-    const a = audio();
-    if (!a.duration || !isFinite(a.duration)) return;
-    const pct = (a.currentTime / a.duration) * 100;
-    el.played.style.width = `${pct}%`;
-    el.cur.textContent = fmtTime(a.currentTime);
-    el.dur.textContent = fmtTime(a.duration);
-    el.progress.setAttribute('aria-valuenow', Math.round(pct));
-    // buffered
-    if (a.buffered.length) {
-      const end = a.buffered.end(a.buffered.length - 1);
-      el.buffered.style.width = `${Math.min(100, (end / a.duration) * 100)}%`;
-    }
+    paintProgress();
   };
-  loop();
+  rafId = requestAnimationFrame(loop);
+}
+
+function stopProgressLoop() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  paintProgress();
 }
 
 function bindScrubbing() {
@@ -740,18 +762,22 @@ export function initPlayer() {
   document.getElementById('pb-cover-btn').onclick = openNowPlaying;
   document.getElementById('pb-expand').onclick = openNowPlaying;
   bindScrubbing();
-  startProgressLoop();
+  paintProgress();  // the rAF loop only runs while audio actually plays
 
   // audio events
   a.addEventListener('playing', () => {
     set({ playing: true }); updatePlayButton(); failStreak = 0;
+    startProgressLoop();
     ensureRunning(); // an EQ'd element is silent while its context sleeps
   });
-  a.addEventListener('pause', () => { set({ playing: false }); updatePlayButton(); });
+  a.addEventListener('pause', () => { set({ playing: false }); updatePlayButton(); stopProgressLoop(); });
   a.addEventListener('ended', () => {
+    stopProgressLoop();
     if (get('sleep').endOfTrack && get('repeat') !== 'one') { fireSleepEnd(); return; }
     if (get('repeat') !== 'one') next(true);
   });
+  a.addEventListener('timeupdate', () => { if (!rafId) paintProgress(); });
+  a.addEventListener('durationchange', () => paintProgress());
   a.addEventListener('error', () => {
     const t = get('current');
     if (!t) return;

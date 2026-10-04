@@ -18,6 +18,7 @@ Flags:
 from __future__ import annotations
 
 import json
+import getpass
 import os
 import socket
 import sys
@@ -46,6 +47,61 @@ def _config_file() -> Path:
 
 
 CFG_FILE = _config_file()
+
+# single-instance: the window closes to the tray, so launching the binary
+# again must focus the running app instead of stacking a second full
+# process (each one bundles a Qt engine and, in local mode, a server)
+SINGLETON_NAME = f"osmp-desktop-{getpass.getuser()}"
+
+
+def focus_running_instance() -> bool:
+    """True when another OSMP desktop is already up — we told it to show
+    itself and this process should exit."""
+    try:
+        from PySide6.QtNetwork import QLocalSocket
+        sock = QLocalSocket()
+        sock.connectToServer(SINGLETON_NAME)
+        if sock.waitForConnected(400):
+            sock.write(b"show\n")
+            sock.waitForBytesWritten(500)
+            sock.disconnectFromServer()
+            return True
+        sock.abortPendingConnection()
+    except Exception:
+        pass
+    return False
+
+
+def claim_single_instance(show_target) -> bool:
+    """Become the one OSMP desktop. `show_target` is a zero-arg callable that
+    raises the window (invoked when a second launch asks us to show up).
+    Returns False if another instance won the name — caller must exit."""
+    try:
+        from PySide6.QtCore import QTimer
+        from PySide6.QtNetwork import QLocalServer
+        QLocalServer.removeServer(SINGLETON_NAME)  # stale socket from a crash
+        server = QLocalServer()
+        if not server.listen(SINGLETON_NAME):
+            return False  # another instance holds the name
+
+        def on_conn():
+            sock = server.nextPendingConnection()
+            if not sock:
+                return
+            sock.readAll()
+
+            def show_and_drop():
+                try:
+                    show_target()
+                except Exception:
+                    pass
+                sock.disconnectFromServer()
+
+            QTimer.singleShot(0, show_and_drop)
+        server.newConnection.connect(on_conn)
+        return True
+    except Exception:
+        return True  # guard must never block the app from starting
 
 
 def _resource_dir() -> Path:
@@ -215,6 +271,12 @@ def main() -> int:
         cfg = {"mode": "client", "url": base, "token": flag("--token")}
         client_url = base  # smoke path loads the server directly
 
+    # one desktop per user: a second launch just raises the first window
+    # (skipped for headless/CI and the --browser helper)
+    if not smoke and not browser_mode and focus_running_instance():
+        print("OSMP is already running — brought it to the front")
+        return 0
+
     if client_url is None:
         if browser_mode:
             cfg = {"mode": "local"}  # helper mode always uses the bundled server
@@ -273,6 +335,10 @@ def main() -> int:
     win.resize(1280, 860)
     view = QWebEngineView(win)
     win.setCentralWidget(view)
+
+    if not claim_single_instance(lambda: (win.show(), win.raise_(), win.activateWindow())):
+        print("OSMP is already running — brought it to the front")
+        return 0
 
     if session_token:
         from PySide6.QtNetwork import QNetworkCookie
