@@ -164,8 +164,13 @@ else
 fi
 
 # ── service (system unit as root, user unit otherwise) ───────────────
+# "degraded" is the normal state on real servers (one failed unit somewhere);
+# refusing it would silently skip systemd entirely
+systemd_ok() { command -v systemctl >/dev/null 2>&1 \
+  && systemctl is-system-running 2>/dev/null | grep -qE '^(running|degraded)'; }
+
 RUN_USER="${SUDO_USER:-root}"
-if [[ $IS_ROOT -eq 1 && $NO_SYSTEMD -eq 0 ]] && command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+if [[ $IS_ROOT -eq 1 && $NO_SYSTEMD -eq 0 ]] && systemd_ok; then
   UNIT="/etc/systemd/system/${OSMP_SERVICE}.service"
   UNIT_KIND="system service"
   sed -e "s|__OSMP_USER__|$RUN_USER|g" \
@@ -180,7 +185,7 @@ if [[ $IS_ROOT -eq 1 && $NO_SYSTEMD -eq 0 ]] && command -v systemctl >/dev/null 
   systemctl enable --now "$OSMP_SERVICE" >/dev/null 2>&1 || systemctl enable --now "$OSMP_SERVICE"
   STATUS="service:  systemctl status $OSMP_SERVICE"
   RUN_CMD=""
-elif [[ $NO_SYSTEMD -eq 0 ]] && command -v systemctl >/dev/null 2>&1 && systemctl --user is-system-running >/dev/null 2>&1; then
+elif [[ $NO_SYSTEMD -eq 0 ]] && systemctl --user is-system-running 2>/dev/null | grep -qE '^(running|degraded)'; then
   mkdir -p "$HOME/.config/systemd/user"
   UNIT="$HOME/.config/systemd/user/${OSMP_SERVICE}.service"
   UNIT_KIND="user service"
@@ -205,7 +210,12 @@ else
 fi
 
 sleep 2
-if curl -fsS "http://127.0.0.1:$PORT_ARG/api/health" >/dev/null 2>&1; then
+# probe the address we actually bound to — 0.0.0.0 isn't curlable, and a
+# specific LAN IP refuses loopback probes, which made healthy installs
+# report "not responding yet"
+HEALTH_HOST="127.0.0.1"
+[[ "$HOST_ARG" != "0.0.0.0" && "$HOST_ARG" != "::" ]] && HEALTH_HOST="$HOST_ARG"
+if curl -fsS "http://$HEALTH_HOST:$PORT_ARG/api/health" >/dev/null 2>&1; then
   HEALTH="✓ server is up"
 else
   HEALTH="(not responding yet — check journalctl -u $OSMP_SERVICE if you installed the service)"

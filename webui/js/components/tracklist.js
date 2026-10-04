@@ -61,7 +61,7 @@ export function renderTracklist(host, tracks, opts = {}) {
           : `<span class="num">${i + 1}</span><span class="play-ico">${icon('play', 14, true)}</span>`}
       </span>
       <span class="tl-main">
-        <img class="tl-cover" loading="lazy" src="${thumbUrl(t)}" alt=""
+        <img class="tl-cover" loading="lazy" src="${escapeAttr(thumbUrl(t))}" alt=""
              onerror="__thumbErr(this)">
         <span class="grow" style="min-width:0">
           <span class="tl-title ellipsis" style="display:block"></span>
@@ -148,8 +148,10 @@ function bindArtistLink(el, artist) {
 let dragEl = null;
 
 function bindRowDrag(row, root, tracks, opts) {
+  let startIds = null;
   row.addEventListener('dragstart', (e) => {
     dragEl = row;
+    startIds = [...root.querySelectorAll('.tl-row')].map(r => r.dataset.trackId);
     row.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', row.dataset.pos);
@@ -158,10 +160,12 @@ function bindRowDrag(row, root, tracks, opts) {
     row.classList.remove('dragging');
     root.querySelectorAll('.tl-row').forEach(r => r.classList.remove('drop-before', 'drop-after'));
     dragEl = null;
-    if (opts.onReorder) {
+    if (opts.onReorder && startIds) {
       const ids = [...root.querySelectorAll('.tl-row')].map(r => r.dataset.trackId);
-      opts.onReorder(ids);
+      // a cancelled drag (dropped outside / Escape) must not fire a save
+      if (ids.join('\n') !== startIds.join('\n')) opts.onReorder(ids);
     }
+    startIds = null;
   });
   row.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -189,6 +193,14 @@ function bindRowDrag(row, root, tracks, opts) {
 }
 
 // ── skeleton loader ──────────────────────────────────────────────────
+
+// attribute-safe escaping — thumbnail URLs come from the server (and can be
+// restored from arbitrary backup files), so they never go into markup raw
+function escapeAttr(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
 
 export function skeletonTracklist(host, rows = 8) {
   host.innerHTML = `

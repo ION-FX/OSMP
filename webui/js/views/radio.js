@@ -74,6 +74,7 @@ export async function mount(root, params) {
   const countSel = root.querySelector('#rd-count');
   const goBtn = root.querySelector('#rd-go');
   const results = root.querySelector('#rd-results');
+  let genToken = 0;  // discards stale generations — two rapid runs must not race
 
   // presets + history chips
   const presets = root.querySelector('#rd-presets');
@@ -165,6 +166,7 @@ export async function mount(root, params) {
       location.hash = `#/import?url=${encodeURIComponent(seed)}`;
       return;
     }
+    const my = ++genToken;
     goBtn.disabled = true;
     goBtn.innerHTML = `<span class="spin" style="display:flex">${icon('spinner', 16)}</span> Tuning…`;
     results.innerHTML = `
@@ -172,6 +174,7 @@ export async function mount(root, params) {
     skeletonTracklist(results, 10);
     try {
       const data = await api.radio(seed, +countSel.value);
+      if (my !== genToken) return;  // a newer generate superseded this one
       rememberTracks(data.tracks);
       renderResult(results, data.tracks, {
         title: data.seed,
@@ -185,6 +188,7 @@ export async function mount(root, params) {
       persist('radioHistory', hist.slice(0, 8));
       renderHistory();
     } catch (e) {
+      if (my !== genToken) return;
       results.innerHTML = `
         <div class="empty">
           <span class="empty-ico">${icon('alert', 40)}</span>

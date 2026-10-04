@@ -315,7 +315,7 @@ function topTracksCard(tracks) {
     row.className = 'rank-row track';
     row.innerHTML = `
       <span class="rank-num">${i + 1}</span>
-      <img class="rank-cover" src="${thumbUrl(t, 'mq')}" alt="" loading="lazy" onerror="__thumbErr(this)">
+      <img class="rank-cover" src="${escapeHtml(thumbUrl(t, 'mq'))}" alt="" loading="lazy" onerror="__thumbErr(this)">
       <span class="grow" style="min-width:0;text-align:left">
         <span class="rank-name ellipsis" style="display:block"></span>
         <span class="rank-sub ellipsis" style="display:block"></span>

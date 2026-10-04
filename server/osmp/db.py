@@ -484,6 +484,14 @@ def import_library(data: dict, cfg: Config | None = None) -> dict:
         if isinstance(t, dict) and t.get("id"):
             track_meta[t["id"]] = t
             upsert_track(t, cfg)
+            # upserts deliberately never touch play_count; the backup carried
+            # it, so restore it here (never below what this instance has)
+            pc = t.get("play_count")
+            if isinstance(pc, (int, float)) and pc > 0:
+                with _connect(cfg) as conn:
+                    conn.execute(
+                        "UPDATE tracks SET play_count=MAX(play_count,?) WHERE id=?",
+                        (int(pc), t["id"]))
     with _connect(cfg) as conn:
         existing = {(r["owner"] or "", r["name"]): r["id"] for r in conn.execute(
             """SELECT p.id, p.name, COALESCE(u.username, '') AS owner

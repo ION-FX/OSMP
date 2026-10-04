@@ -184,6 +184,10 @@ export async function mount(root, params) {
   } else {
     setTimeout(() => input.focus(), 120);
   }
+
+  // the router calls this on navigation — without it the debounce timer and
+  // in-flight search keep firing after the view is gone
+  return { unmount };
 }
 
 export function unmount() {

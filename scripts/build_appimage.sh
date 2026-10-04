@@ -107,6 +107,14 @@ ls -la "$OUT/OSMP-x86_64.AppImage"
 # AppRun; on FUSE-capable machines the plain invocation works).
 echo "→ smoke test (offscreen Qt + embedded server)"
 rm -rf /tmp/osmp-appimage-smoke
+SMOKE_LOG=$(mktemp)
 QT_QPA_PLATFORM=offscreen timeout 150 "$OUT/OSMP-x86_64.AppImage" \
-  --appimage-extract-and-run --smoke --data /tmp/osmp-appimage-smoke
+  --appimage-extract-and-run --smoke --data /tmp/osmp-appimage-smoke 2>&1 | tee "$SMOKE_LOG"
+# exit code alone can't be trusted: a stale single-instance socket makes the
+# app exit 0 with "already running" without ever loading the UI
+if ! grep -q "SMOKE_OK" "$SMOKE_LOG"; then
+  echo "!! smoke test did not print SMOKE_OK" >&2
+  exit 1
+fi
+rm -f "$SMOKE_LOG"
 echo "✓ AppImage smoke test passed"

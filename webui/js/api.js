@@ -63,7 +63,8 @@ export function outboxCount() {
 }
 
 function outboxSave(entries) {
-  localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries.slice(-OUTBOX_MAX)));
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries.slice(-OUTBOX_MAX))); }
+  catch { /* storage blocked — offline journal just doesn't persist */ }
 }
 
 export async function outboxFlush() {
@@ -195,7 +196,16 @@ export const api = {
   // settings & history
   settings:      () => req('/api/settings'),
   saveSettings:  (patch) => req('/api/settings', { method: 'PUT', body: patch }),
-  history:       (trackId) => req('/api/history', { method: 'POST', body: { track_id: trackId } }).catch(() => {}),
+  // full metadata travels with the play: tracks first heard via search must
+  // land in the server library, or stats/history joins drop the play
+  history:       (track) => req('/api/history', {
+                     method: 'POST',
+                     body: {
+                       track_id: track.id,
+                       title: track.title, artist: track.artist,
+                       duration: track.duration, thumbnail: track.thumbnail,
+                     },
+                   }).catch(() => {}),
   home:          () => req('/api/home'),
 
   // self-update
@@ -220,7 +230,8 @@ export function canDecodeAac() {
 }
 
 function streamFormat() {
-  const stored = localStorage.getItem('osmp.format');
+  let stored = null;
+  try { stored = localStorage.getItem('osmp.format'); } catch { /* storage blocked */ }
   if (stored && stored !== 'auto') return stored;  // explicit choice wins
   return canDecodeAac() ? 'm4a' : 'opus';
 }

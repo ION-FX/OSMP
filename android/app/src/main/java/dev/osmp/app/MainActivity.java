@@ -34,6 +34,8 @@ public class MainActivity extends Activity {
     private OsmpBridge bridge;
     private PowerManager.WakeLock wakeLock;
     private String serverUrl;
+    private volatile boolean showingOfflinePage = false;
+    private int sslDecision = 0;  // 0 = ask, 1 = proceed, 2 = cancel (per session)
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -103,15 +105,27 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && web != null && web.canGoBack()) {
-            web.goBack();
-            return true;
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (showingOfflinePage) {
+                // back from the offline page re-loads the failed entry, which
+                // errors again and appends another offline page — a trap
+                finish();
+                return true;
+            }
+            if (web != null && web.canGoBack()) {
+                web.goBack();
+                return true;
+            }
         }
         return super.onKeyDown(keyCode, event);
     }
 
     @Override
     protected void onDestroy() {
+        // the WebView dies with this activity, so playback (and the
+        // notification controlling it) must die too
+        MediaService.clearHost(this);
+        MediaService.stop(this);
         setWakeLock(false);
         if (web != null) web.destroy();
         super.onDestroy();
@@ -173,10 +187,18 @@ public class MainActivity extends Activity {
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
             Uri uri = req.getUrl();
             if (uri == null) return false;
+            if ("osmp-retry".equals(uri.getScheme())) {
+                // Retry button on the offline page — location.reload() would
+                // only re-load the local data: page, never the server
+                showingOfflinePage = false;
+                view.loadUrl(serverUrl + "/");
+                return true;
+            }
             String host = uri.getHost();
             String scheme = uri.getScheme();
             // keep app navigation inside; external links (youtube.com etc.) → browser
-            boolean internal = host != null && (serverUrl.contains(host)
+            Uri server = Uri.parse(serverUrl);
+            boolean internal = host != null && (host.equals(server.getHost())
                     || host.equals(OFFLINE_HOST) || host.equals("localhost")
                     || host.equals("127.0.0.1"));
             if (!internal && ("http".equals(scheme) || "https".equals(scheme))) {
@@ -191,13 +213,16 @@ public class MainActivity extends Activity {
         @Override
         public void onReceivedSslError(WebView view, SslErrorHandler handler,
                                        android.net.http.SslError error) {
-            // self-signed certs are common on self-hosted LAN servers:
-            // ask once per session instead of hard-failing.
+            // self-signed certs are common on self-hosted LAN servers: ask
+            // once per session — the main frame plus every XHR would
+            // otherwise stack identical dialogs
+            if (sslDecision == 1) { handler.proceed(); return; }
+            if (sslDecision == 2) { handler.cancel(); return; }
             new android.app.AlertDialog.Builder(MainActivity.this)
                     .setTitle("Untrusted certificate")
                     .setMessage("This server's TLS certificate isn't trusted. Continue anyway?")
-                    .setPositiveButton("Continue", (d, w) -> handler.proceed())
-                    .setNegativeButton("Cancel", (d, w) -> handler.cancel())
+                    .setPositiveButton("Continue", (d, w) -> { sslDecision = 1; handler.proceed(); })
+                    .setNegativeButton("Cancel", (d, w) -> { sslDecision = 2; handler.cancel(); })
                     .setCancelable(false)
                     .show();
         }
@@ -205,6 +230,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
+            showingOfflinePage = url == null || !url.startsWith("http");
             // re-announce playback state to the notification after reloads
             evalJs("window.__osmpMedia && __osmpMedia('noop')");
         }
@@ -213,6 +239,20 @@ public class MainActivity extends Activity {
         public void onReceivedError(WebView view, int errorCode, String description,
                                     String failingUrl) {
             super.onReceivedError(view, errorCode, description, failingUrl);
+            showOfflinePage(view);
+        }
+
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest req,
+                                    android.webkit.WebResourceError error) {
+            super.onReceivedError(view, req, error);
+            // only a dead main frame replaces the page — a failing cover
+            // image shouldn't nuke the whole UI
+            if (req.isForMainFrame()) showOfflinePage(view);
+        }
+
+        private void showOfflinePage(WebView view) {
+            showingOfflinePage = true;
             view.loadDataWithBaseURL(null, OFFLINE_PAGE, "text/html", "utf-8", null);
         }
     }
@@ -223,7 +263,7 @@ public class MainActivity extends Activity {
           + "<div style='text-align:center'><h2>Server unreachable</h2>"
           + "<p style='color:#93a1b5'>Check that the machine running OSMP is on and that "
           + "you're on the same network.<br>Downloaded tracks still play from the Library.</p>"
-          + "<p><button onclick='location.reload()' style='padding:12px 26px;border:0;"
+          + "<p><button onclick='location.href=\"osmp-retry://load\"' style='padding:12px 26px;border:0;"
           + "border-radius:24px;background:linear-gradient(115deg,#0dbeb0,#8b5cf6);color:#fff;"
           + "font-size:15px;font-weight:600'>Retry</button></p></div></body></html>";
 }

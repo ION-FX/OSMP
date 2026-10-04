@@ -185,6 +185,10 @@ def resolve_stream(video_id: str, fmt: str = "auto") -> dict:
         "expires": time.time() + URL_CACHE_TTL,
     }
     with _cache_lock:
+        # opportunistic sweep — expired entries were skipped on read but
+        # never removed, so a long-lived server grew the dict unbounded
+        for k in [k for k, v in _url_cache.items() if v["expires"] < now]:
+            _url_cache.pop(k, None)
         _url_cache[key] = entry
     return entry
 

@@ -31,6 +31,7 @@ public class DownloadStore {
         public String status = "idle";   // queued|downloading|done|error
         public float progress = 0f;
         public String error = null;
+        public volatile boolean canceled = false;
     }
 
     private final Context ctx;
@@ -131,15 +132,32 @@ public class DownloadStore {
     }
 
     public void delete(String id) {
+        // flag any in-flight worker so it can't resurrect the deleted file
+        State s = states.get(id);
+        if (s != null) s.canceled = true;
         File f = fileFor(id);
         if (f.exists()) f.delete();
+        new File(dir, id + "." + guessExtFromStates(id) + ".part").delete();
         index.remove(id);
         states.remove(id);
         saveIndex();
     }
 
+    private String guessExtFromStates(String id) {
+        // best effort — .part cleanup for an unknown in-flight extension
+        for (String ext : new String[]{"m4a", "webm", "opus", "mp3"}) {
+            if (new File(dir, id + "." + ext + ".part").exists()) return ext;
+        }
+        return "m4a";
+    }
+
     public void download(String id, String url, String title, String artist) {
         if (isDownloaded(id)) return;
+        State cur = states.get(id);
+        if (cur != null && !cur.canceled
+                && ("queued".equals(cur.status) || "downloading".equals(cur.status))) {
+            return;  // already in flight — a second task would corrupt the .part file
+        }
         State s = new State();
         s.status = "queued";
         states.put(id, s);
@@ -150,6 +168,7 @@ public class DownloadStore {
 
     private void run(String id, String url, String title, String artist) {
         State s = states.get(id);
+        if (s == null) return;  // deleted between submit and start
         s.status = "downloading";
         String ext = guessExt(url);
         File tmp = new File(dir, id + "." + ext + ".part");
@@ -167,11 +186,13 @@ public class DownloadStore {
                 long done = 0;
                 int n;
                 while ((n = in.read(buf)) > 0) {
+                    if (s.canceled) { tmp.delete(); return; }
                     out.write(buf, 0, n);
                     done += n;
                     if (total > 0) s.progress = Math.min(1f, (float) done / total);
                 }
             }
+            if (s.canceled) { tmp.delete(); return; }
             File dest = new File(dir, id + "." + ext);
             if (dest.exists()) dest.delete();
             if (!tmp.renameTo(dest)) throw new IllegalStateException("rename failed");

@@ -39,7 +39,10 @@ export async function mount(root) {
   let fetched = PAGE;  // how many rows we've asked the server for
 
   const render = (plays) => {
-    const stick = window.scrollY;
+    // #view-root is the page scroller (body never scrolls) — window.scrollY
+    // is always 0 and would make "Load more" jump back to the top
+    const scroller = document.getElementById('view-root');
+    const stick = scroller ? scroller.scrollTop : 0;
     body.innerHTML = '';
     let currentDay = null;
     let list = null;
@@ -63,7 +66,7 @@ export async function mount(root) {
       row.className = 'rank-row track';
       row.innerHTML = `
         <span class="rank-num">${timeLabel(p.played_at)}</span>
-        <img class="rank-cover" src="${thumbUrl(p, 'mq')}" alt="" loading="lazy" onerror="__thumbErr(this)">
+        <img class="rank-cover" src="${escapeHtml(thumbUrl(p, 'mq'))}" alt="" loading="lazy" onerror="__thumbErr(this)">
         <span class="grow" style="min-width:0;text-align:left">
           <span class="rank-name ellipsis" style="display:block"></span>
           <span class="rank-sub ellipsis" style="display:block"></span>
@@ -86,7 +89,7 @@ export async function mount(root) {
       sec.querySelector('.hy-daycount').textContent =
         `${n} play${n === 1 ? '' : 's'}`;
     });
-    window.scrollTo(0, stick);
+    if (scroller) scroller.scrollTop = stick;
   };
 
   const load = async () => {

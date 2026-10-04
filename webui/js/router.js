@@ -67,11 +67,12 @@ export async function navigate() {
     currentName = route.name;
   } catch (e) {
     console.error('[router] view failed', e);
+    const msg = escapeHtml(String(e.message || e).slice(0, 200));
     root.innerHTML = `
       <div class="view">
         <div class="empty">
           <h3>That view crashed 😵</h3>
-          <p style="font-family:var(--mono);font-size:12px">${String(e.message || e).slice(0, 200)}</p>
+          <p style="font-family:var(--mono);font-size:12px">${msg}</p>
           <a class="btn primary" href="#/home">Back home</a>
         </div>
       </div>`;
@@ -82,4 +83,10 @@ export function initRouter() {
   window.addEventListener('hashchange', navigate);
   if (!location.hash) location.hash = '#/home';
   navigate();
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }

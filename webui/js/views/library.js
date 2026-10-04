@@ -85,16 +85,17 @@ export async function mount(root) {
     btn.innerHTML = `${icon('upload', 16)} Upload music`;
     if (done) toastOk(`Uploaded ${done} track${done === 1 ? '' : 's'}`, { icon: 'upload' });
     if (dupes) toast(`${dupes} already in your library`, { icon: 'info' });
-    await Promise.all([renderDownloads(), renderArtists()]);
+    if (!root.isConnected) return;  // navigated away mid-upload
+    await Promise.all([renderDownloads(root), renderArtists(root)]);
   };
 
   if (bridge()?.isDownloaded) root.querySelector('#lb-native-note').classList.remove('hidden');
 
-  await Promise.all([renderPlaylists(), renderSmart(), renderDownloads(), renderArtists()]);
+  await Promise.all([renderPlaylists(root), renderSmart(root), renderDownloads(root), renderArtists(root)]);
 }
 
 // Smart playlists: rule-based cards + preset quick-adds when there are none yet
-async function renderSmart() {
+async function renderSmart(root) {
   const host = document.getElementById('lb-smart');
   const countEl = document.getElementById('lb-smart-count');
   let smart = [];
@@ -105,6 +106,7 @@ async function renderSmart() {
       api.smartPresets().then(d => d.presets),
     ]);
   } catch { /* offline — keep the section empty */ }
+  if (!root.isConnected) return;  // stale async render after navigation
   countEl.textContent = smart.length ? `${smart.length} · auto-updating` : '';
   host.innerHTML = '';
   if (!smart.length) {
@@ -153,7 +155,7 @@ async function renderSmart() {
   });
 }
 
-async function renderArtists() {
+async function renderArtists(root) {
   const host = document.getElementById('lb-artists');
   const countEl = document.getElementById('lb-ar-count');
   let artists = [];
@@ -161,6 +163,7 @@ async function renderArtists() {
     artists = (await api.artists()).artists;
   } catch { /* offline — keep the section empty */
   }
+  if (!root.isConnected) return;
   countEl.textContent = artists.length ? `${artists.length} in your library` : '';
   if (!artists.length) {
     document.getElementById('lb-artists-sec').style.display = 'none';
@@ -187,8 +190,9 @@ async function renderArtists() {
   }
 }
 
-async function renderPlaylists() {
+async function renderPlaylists(root) {
   await refreshPlaylists();
+  if (!root.isConnected) return;
   const pls = get('playlists');
   const host = document.getElementById('lb-playlists');
   document.getElementById('lb-pl-count').textContent = `${pls.length} playlists`;
@@ -224,7 +228,7 @@ async function renderPlaylists() {
   });
 }
 
-async function renderDownloads() {
+async function renderDownloads(root) {
   const host = document.getElementById('lb-downloads');
   skeletonTracklist(host, 4);
 
@@ -239,6 +243,7 @@ async function renderDownloads() {
   } catch (e) {
     console.warn('[library] server downloads failed', e);
   }
+  if (!root.isConnected) return;
 
   // native (Android) downloads
   const b = bridge();
@@ -277,7 +282,7 @@ async function renderDownloads() {
   renderTracklist(host, tracks, {
     onRemove: async (t) => {
       await removeDownload(t);
-      renderDownloads();
+      if (root.isConnected) renderDownloads(root);
     },
   });
 }

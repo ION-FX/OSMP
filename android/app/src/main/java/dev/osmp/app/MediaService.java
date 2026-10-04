@@ -42,11 +42,23 @@ public class MediaService extends Service {
     private final ExecutorService artPool = Executors.newSingleThreadExecutor();
 
     public static void update(Context ctx, JSONObject state) {
-        if (ctx instanceof MainActivity) host = (MainActivity) ctx;
+        boolean playing = state != null && state.optBoolean("playing", false);
+        if (ctx instanceof MainActivity) {
+            host = (MainActivity) ctx;
+            // the wakelock tracks playback here — the web UI only ever asks
+            // for it, so a pause must release it on this side
+            host.setWakeLock(playing);
+        }
         lastState = mergeState(state);
         Intent i = new Intent(ctx, MediaService.class);
         if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i);
         else ctx.startService(i);
+    }
+
+    /** Called from MainActivity.onDestroy() — the WebView is gone, so the
+     *  notification's transport buttons would do nothing. */
+    public static void clearHost(MainActivity a) {
+        if (host == a) host = null;
     }
 
     /** Fill missing fields from the last known state — a payload carrying
@@ -105,8 +117,17 @@ public class MediaService extends Service {
             return START_NOT_STICKY;
         }
 
+        // A sticky restart after process death arrives with a null intent and
+        // empty statics — startForeground() must still run within the system's
+        // timeout or the service is killed with ForegroundServiceDidNotStart.
+        startForeground(NOTIF_ID, buildNotification(
+                lastTitle.isEmpty() ? "OSMP" : lastTitle, lastArtist, false, null));
+
         JSONObject st = lastState;
-        if (st == null) return START_NOT_STICKY;
+        if (st == null) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         boolean playing = st.optBoolean("playing", false);
         String title = st.optString("title", "OSMP");
@@ -202,6 +223,7 @@ public class MediaService extends Service {
     @Override
     public void onDestroy() {
         instance = null;
+        artPool.shutdownNow();  // its single idle thread would leak per start/stop cycle
         if (session != null) {
             session.setActive(false);
             session.release();

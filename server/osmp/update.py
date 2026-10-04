@@ -215,6 +215,9 @@ def _log(job: dict, line: str) -> None:
 def start_job(kind: str = "full") -> dict:
     if kind not in ("full", "ytdlp"):
         raise UpdateError("unknown update kind")
+    with _LOCK:
+        if any(v["status"] == "running" for v in JOBS.values()):
+            raise UpdateError("an update is already running — give it a minute")
     job_id, job = _new_job(kind)
     threading.Thread(target=_run_job, args=(job_id, job, kind), daemon=True).start()
     return {"job_id": job_id}
@@ -233,16 +236,21 @@ def _run_job(job_id: str, job: dict, kind: str) -> None:
     try:
         info = current_info()
         if kind == "ytdlp":
+            if is_frozen():
+                # sys.executable is the packaged app binary, not Python —
+                # "pip" would just boot a second copy of OSMP
+                raise UpdateError(
+                    "yt-dlp is bundled inside this packaged build and can't "
+                    "be upgraded separately — update the app itself instead.")
             _ytdlp_job(job)
         elif info["mode"] == "appimage":
             _appimage_job(job)
         elif info["mode"] == "source":
             _source_job(job, info)
         elif info["mode"] == "windows-exe":
-            # the zip has no in-place updater — but yt-dlp refreshes still work
             raise UpdateError(
                 "Windows builds update by downloading the new zip from "
-                + RELEASE_URL + " — 'Update yt-dlp only' still works here.")
+                + RELEASE_URL + " and replacing this folder.")
         else:
             raise UpdateError(
                 "This install doesn't support self-update (no git repo, not an "
@@ -269,7 +277,7 @@ def _source_job(job: dict, info: dict) -> None:
 
     if info["dirty"]:
         r = _git(["stash", "push", "-u", "-m", "osmp auto-update"], cwd=root)
-        _log(job, "local changes stashed" if "saved" in (r.stdout or "")
+        _log(job, "local changes stashed" if "saved" in (r.stdout or "").lower()
              else "nothing to stash")
     else:
         _log(job, "working tree clean")
@@ -423,18 +431,35 @@ def _restart(job: dict, new_appimage: Path | None = None) -> None:
         data = cfg.data_dir
         port = cfg.port
         # plain launch first; on distros without libfuse2 the runtime exits
-        # non-zero and we fall back to extract-and-run automatically
+        # non-zero and we fall back to extract-and-run automatically.
+        # --local matters: this updater only runs inside a desktop process
+        # that hosts its own server, and the relaunched binary must boot
+        # that server again instead of popping the connect dialog headless.
         script = (f'sleep 2\n'
                   f'mv -f "{new_appimage}" "{path}"\n'
-                  f'"{path}" --port {port} --data "{data}" || '
+                  f'"{path}" --local --port {port} --data "{data}" || '
                   f'exec "{path}" --appimage-extract-and-run '
-                  f'--port {port} --data "{data}"\n')
+                  f'--local --port {port} --data "{data}"\n')
         _log(job, f"relaunching AppImage on port {port}")
     else:
         root = repo_root()
         if not root:
             raise UpdateError("cannot determine repo root for relaunch")
         data = cfg.data_dir
+        if sys.platform == "win32":
+            # no sh on Windows — a source checkout still needs to relaunch
+            script = (f'timeout /t 2 /nobreak >nul & cd /d "{root}\\server" && '
+                      f'"{sys.executable}" run.py --host {cfg.host} '
+                      f'--port {cfg.port} --data "{data}" '
+                      f'>> "{data}\\server.log" 2>&1')
+            subprocess.Popen(["cmd", "/c", script],
+                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                             cwd=str(root),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            job["status"] = "done"
+            _log(job, "✓ update applied — server is restarting")
+            threading.Timer(1.0, lambda: os._exit(0)).start()
+            return
         script = (f'sleep 2; cd "{root}/server" && exec {sys.executable} run.py '
                   f'--host {cfg.host} --port {cfg.port} --data "{data}" '
                   f'>> "{data}/server.log" 2>&1')

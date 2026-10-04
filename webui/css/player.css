@@ -235,6 +235,9 @@
   .pb-timeline { display: none; }
   #player-bar { grid-template-rows: auto auto; height: auto; padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   #pb-vol { width: 64px; }
+  /* the bar is really two rows now (~120px); --player-h sizes #app, the
+     queue drawer and the toast host — without this the bar covers them */
+  :root { --player-h: 120px; }
 }
 @media (max-width: 640px) {
   .pb-track .pb-meta { max-width: 30vw; }

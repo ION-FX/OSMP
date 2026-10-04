@@ -90,32 +90,34 @@ export async function toggleLike(track) {
   if (!track) return;
   try {
     const liked = await ensureLikedPlaylist();
-    // offline: trust the cached track ids (deep refresh) so the like still
-    // lands — the mutation itself is journaled and replays on reconnect
     const offline = get('online') === false;
     if (!offline) {
       const full = await api.playlist(liked.id);
       liked.trackIds = full.tracks.map(t => t.id);
     }
     const ids = liked.trackIds || [];
-    if (ids.includes(track.id)) {
-      await api.removeFromPlaylist(liked.id, track.id);
-      liked.trackIds = ids.filter(i => i !== track.id);
-      toast('Removed from Liked', { icon: 'heart' });
-    } else {
-      await api.addToPlaylist(liked.id, [{
-        id: track.id, title: track.title, artist: track.artist,
-        duration: track.duration, thumbnail: track.thumbnail,
-      }]);
-      liked.trackIds = [...ids, track.id];
-      toastOk('Saved to Liked', { icon: 'heart' });
+    const adding = !ids.includes(track.id);
+    try {
+      if (adding) {
+        await api.addToPlaylist(liked.id, [{
+          id: track.id, title: track.title, artist: track.artist,
+          duration: track.duration, thumbnail: track.thumbnail,
+        }]);
+      } else {
+        await api.removeFromPlaylist(liked.id, track.id);
+      }
+    } catch (e) {
+      if (e?.status !== 0) throw e;  // real failure — report below
+      // offline: req() already journaled the mutation; it replays on
+      // reconnect, so apply the optimistic state instead of erroring
     }
-    if (offline) {
-      renderSidebarPlaylists();
-      updateLikeButtons();
-    } else {
-      await refreshPlaylistsDeep();
-    }
+    liked.trackIds = adding ? [...ids, track.id] : ids.filter(i => i !== track.id);
+    const suffix = offline ? ' (syncs when back online)' : '';
+    if (adding) toastOk(`Saved to Liked${suffix}`, { icon: 'heart' });
+    else toast(`Removed from Liked${suffix}`, { icon: 'heart' });
+    renderSidebarPlaylists();
+    updateLikeButtons();
+    if (!offline) await refreshPlaylistsDeep();
   } catch (e) {
     toastErr(e.detail || e.message || 'Like failed');
   }
@@ -500,6 +502,9 @@ export function openSleepDialog() {
       let tick = null;
       if (rem) {
         const upd = () => {
+          // the dialog closes via Escape/backdrop without calling done() —
+          // a detached countdown must not tick forever
+          if (!rem.isConnected) { if (tick) clearInterval(tick); return; }
           const ms = player.sleepRemainingMs();
           rem.textContent = `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`;
         };

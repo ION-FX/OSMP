@@ -38,7 +38,7 @@ export async function mount(root, params) {
   host.innerHTML = `
     <div class="detail-head" id="pl-head">
       ${coverSrc
-        ? `<img class="detail-cover" id="pl-cover" src="${coverSrc}" alt="" onerror="__thumbErr(this)">`
+        ? `<img class="detail-cover" id="pl-cover" src="${escapeHtml(coverSrc)}" alt="" onerror="__thumbErr(this)">`
         : `<div class="detail-cover" id="pl-cover" style="display:flex;align-items:center;justify-content:center;background:var(--grad);color:#fff">${icon('music', 54)}</div>`}
       <div class="detail-meta grow">
         <div class="detail-kind" id="pl-kind"></div>

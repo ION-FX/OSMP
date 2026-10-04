@@ -157,6 +157,7 @@ def _fetch(track: dict) -> tuple[str, dict | None]:
     dur = _duration(track)
     params: dict[str, Any] = {"track_name": title, "artist_name": artist}
     cands: list[dict] = []
+    net_errors = 0
     try:
         with httpx.Client(base_url=_BASE, headers=_HEADERS, timeout=_TIMEOUT,
                           follow_redirects=True) as http:
@@ -165,17 +166,24 @@ def _fetch(track: dict) -> tuple[str, dict | None]:
                              params={**params, "duration": dur} if dur else params)
                 if r.status_code == 200 and _usable(r.json()):
                     cands.append(r.json())
-            except httpx.HTTPError:
+            except (httpx.HTTPError, ValueError, AttributeError):
+                net_errors += 1
                 log.warning("lyrics /get failed for %r", title)
 
             try:
                 r = http.get("/search", params=params)
                 if r.status_code == 200:
                     cands += [c for c in r.json() if _usable(c)]
-            except (httpx.HTTPError, ValueError):
+            except (httpx.HTTPError, ValueError, AttributeError):
+                net_errors += 1
                 log.warning("lyrics /search failed for %r", title)
     except httpx.HTTPError as exc:
         log.warning("lyrics fetch failed for %r: %s", title, exc)
+        return "error", None
+    if not cands and net_errors:
+        # both lookups died (outage, timeout, malformed body) — this is NOT a
+        # "no lyrics exist" answer; report error so the caller leaves the
+        # cache alone instead of poisoning it for a week
         return "error", None
     best = _best(cands, title, artist, dur)
     return ("hit", best) if best else ("miss", None)

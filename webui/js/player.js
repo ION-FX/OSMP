@@ -18,6 +18,7 @@ let sleepTick = null;
 let fadeTimer = null;
 let fadeVolume = null;     // level the sleep fade last applied (user-nudge guard)
 let npOpen = false;
+let npCloseTimer = null;
 let restoreVolume = null;  // volume before sleep fade
 
 export function bridge() {
@@ -95,6 +96,7 @@ function notifyMediaState(playingOverride) {
 function startAtOrder(pos) {
   const q = get('queue');
   if (pos < 0 || pos >= order.length || !q.length) return;
+  cancelFade();  // a new start always wins over a running sleep fade
   const idx = order[pos];
   const track = q[idx];
   set({ queueIndex: idx, current: track }, false);
@@ -114,7 +116,7 @@ function startAtOrder(pos) {
   set({ playing: true });
   updateNowPlayingUi();
   document.getElementById('player-bar').classList.remove('hidden');
-  api.history(track.id);
+  api.history(track);
   notifyMediaState(true);
   try { bridge()?.setWakeLock?.(true); } catch { /* no bridge */ }
   saveState();
@@ -125,7 +127,7 @@ export function toggle() {
   const st = get();
   if (!st.current) {
     const q = st.queue;
-    if (q.length) jumpTo(q[0] ? st.queueIndex : 0);
+    if (q.length) jumpTo(st.queueIndex >= 0 && st.queueIndex < q.length ? st.queueIndex : 0);
     return;
   }
   if (st.playing) {
@@ -214,11 +216,14 @@ export function removeFromQueue(queueIdx) {
   const newCurrentIdx = wasCurrent ? -1
     : queueIdx < st.queueIndex ? st.queueIndex - 1 : st.queueIndex;
   set({ queue: q, queueIndex: newCurrentIdx, current: wasCurrent ? st.current : q[newCurrentIdx] || null }, false);
-  rebuildOrder(true);
+  // splice the removed index out of the playback order instead of rebuilding
+  // it — a rebuild would discard drag-reorder / play-next placements
+  const op = order.indexOf(queueIdx);
+  if (op >= 0) order.splice(op, 1);
+  order = order.map(i => (i > queueIdx ? i - 1 : i));
   if (wasCurrent) {
     // keep playing current track to its end; it just isn't in the queue anymore
     set({ queueIndex: -1 }, false);
-    order = order.filter(i => i < q.length);
   }
   emit('queue');
   saveState();
@@ -339,6 +344,12 @@ function startSleepTick() {
   }, 1000);
 }
 
+function cancelFade() {
+  if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
+  if (restoreVolume !== null) { audio().volume = restoreVolume; restoreVolume = null; }
+  fadeVolume = null;
+}
+
 function fadeOutAndPause() {
   const a = audio();
   restoreVolume = a.volume;
@@ -390,6 +401,11 @@ function updatePlayButton() {
   // nothing is playing — an idle music app shouldn't keep the compositor busy
   document.body.classList.toggle('media-idle', !playing);
   if (playing) startProgressLoop(); else stopProgressLoop();
+  // keep the OS transport in step — a stale state makes the next
+  // media-key press invert instead of toggle
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch { /* */ }
+  }
   notifyMediaState();
 }
 
@@ -417,10 +433,10 @@ export function updateNowPlayingUi() {
     el.title.textContent = t.title;
     el.artist.textContent = t.artist || '';
     el.title.title = t.title;
-    el.cover.innerHTML = `<img src="${thumbUrl(t)}" alt="" onerror="__thumbErr(this)">`;
+    el.cover.innerHTML = `<img src="${escapeAttr(thumbUrl(t))}" alt="" onerror="__thumbErr(this)">`;
     document.getElementById('np-title').textContent = t.title;
     document.getElementById('np-artist').textContent = t.artist || '';
-    document.getElementById('np-cover').innerHTML = `<img src="${thumbUrl(t)}" alt="" onerror="__thumbErr(this)">`;
+    document.getElementById('np-cover').innerHTML = `<img src="${escapeAttr(thumbUrl(t))}" alt="" onerror="__thumbErr(this)">`;
     document.title = `${t.title} · OSMP`;
     setAmbientFromCover(thumbUrl(t));
     updateMediaSession(t);
@@ -636,6 +652,7 @@ export function toggleMute() {
 export function openNowPlaying() {
   const ov = document.getElementById('np-overlay');
   if (!get('current')) return;
+  if (npCloseTimer) { clearTimeout(npCloseTimer); npCloseTimer = null; }
   ov.classList.remove('hidden', 'closing');
   ov.setAttribute('aria-hidden', 'false');
   npOpen = true;
@@ -644,7 +661,12 @@ export function openNowPlaying() {
 export function closeNowPlaying() {
   const ov = document.getElementById('np-overlay');
   ov.classList.add('closing');
-  setTimeout(() => { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); }, 280);
+  if (npCloseTimer) clearTimeout(npCloseTimer);
+  npCloseTimer = setTimeout(() => {
+    npCloseTimer = null;
+    ov.classList.add('hidden');
+    ov.setAttribute('aria-hidden', 'true');
+  }, 280);
   npOpen = false;
 }
 
@@ -676,9 +698,13 @@ export async function restoreState() {
     rebuildOrder(true);
     if (get('current')) {
       const a = audio();
+      const restoredId = get('current').id;
       a.src = streamUrl(get('current'));
       a.loop = get('repeat') === 'one';
       a.addEventListener('loadedmetadata', () => {
+        // only resume into the restored track — if the user already picked a
+        // different one, this late metadata event must not seek it
+        if (get('current')?.id !== restoredId) return;
         if (saved.position > 1 && saved.position < a.duration - 5) a.currentTime = saved.position;
       }, { once: true });
       document.getElementById('player-bar').classList.remove('hidden');
@@ -773,6 +799,7 @@ export function initPlayer() {
   a.addEventListener('pause', () => { set({ playing: false }); updatePlayButton(); stopProgressLoop(); });
   a.addEventListener('ended', () => {
     stopProgressLoop();
+    if (fadeTimer) return;  // sleep fade running — advance would start the next track at fade volume
     if (get('sleep').endOfTrack && get('repeat') !== 'one') { fireSleepEnd(); return; }
     if (get('repeat') !== 'one') next(true);
   });
@@ -803,7 +830,10 @@ export function initPlayer() {
     failStreak++;
     if (failStreak <= 3) {
       toastErr(`Can't play “${t.title}” — skipping`);
-      setTimeout(() => next(true), 900);
+      setTimeout(() => {
+        if (get('current') !== t) return;  // user picked something else meanwhile
+        next(true);
+      }, 900);
     } else {
       toastErr('Playback keeps failing — YouTube is likely refusing requests for the moment. Try again in a minute.', { timeout: 8000 });
       set({ playing: false });
@@ -825,8 +855,10 @@ export function initPlayer() {
   // media keys / OS integration
   if ('mediaSession' in navigator) {
     const ms = navigator.mediaSession;
-    ms.setActionHandler('play', () => { toggle(); });
-    ms.setActionHandler('pause', () => { toggle(); });
+    // guarded like __osmpMedia below — an unguarded toggle makes the OS's
+    // stale play/pause button invert the real state
+    ms.setActionHandler('play', () => { if (!get('playing')) toggle(); });
+    ms.setActionHandler('pause', () => { if (get('playing')) toggle(); });
     ms.setActionHandler('previoustrack', prev);
     ms.setActionHandler('nexttrack', () => next(false));
     try {
@@ -923,7 +955,7 @@ export function renderQueueDrawer() {
   now.innerHTML = cur ? `
     <div class="qd-label">Now playing</div>
     <div class="qd-item current" data-qi="${st.queueIndex}">
-      <img src="${thumbUrl(cur)}" alt="" onerror="__thumbErr(this)">
+      <img src="${escapeAttr(thumbUrl(cur))}" alt="" onerror="__thumbErr(this)">
       <div class="qd-meta">
         <div class="qd-title"></div>
         <div class="qd-artist"></div>
@@ -951,7 +983,7 @@ export function renderQueueDrawer() {
     item.dataset.qi = qi;
     item.dataset.opos = pos + 1 + i;
     item.innerHTML = `
-      <img src="${thumbUrl(t)}" alt="" loading="lazy" onerror="__thumbErr(this)">
+      <img src="${escapeAttr(thumbUrl(t))}" alt="" loading="lazy" onerror="__thumbErr(this)">
       <div class="qd-meta">
         <div class="qd-title"></div>
         <div class="qd-artist"></div>
@@ -983,3 +1015,11 @@ export function renderQueueDrawer() {
 }
 
 function safeJson(o) { try { return JSON.stringify(o); } catch { return '{}'; } }
+
+// attribute-safe escaping — thumbnails come from the server (and restored
+// backups), so their URLs never go into markup raw
+function escapeAttr(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}

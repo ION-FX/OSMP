@@ -1,5 +1,108 @@
 # Changelog
 
+## v0.7.2 — 2026-10-04
+
+Full-codebase bug sweep (six parallel audits: server core, server services,
+web UI core, web UI views, Android, desktop/scripts) — 30+ defects found and
+fixed. Highlights below.
+
+### Security
+- **Password resets kept attacker sessions alive**: resetting a user's
+  password (admin lockout flow) invalidated nothing — every existing session
+  of that account stayed valid for up to 30 days. All sessions are now
+  dropped on any password change.
+- **Stored XSS via thumbnails**: track/playlist thumbnail URLs came from
+  server data (and restoreable backup files) and were interpolated into
+  `src="…"` unescaped across the tracklist, player, queue drawer, playlist,
+  artist, import, stats and history views — a crafted thumbnail value could
+  break out of the attribute and run script. All 11 interpolation sites are
+  escaped now, as are the crash-page message and smart-playlist covers.
+- **Smaller holes**: update-job logs are admin-only; the home shelf no
+  longer leaks the server-wide playlist count; the last-admin guard and
+  first-run setup claim are race-safe.
+
+### Data integrity
+- **Plays of search results vanished from stats**: playing a track found
+  via search recorded a history row for a track the server had never
+  stored — and every stats/history/top-artist query joins on the tracks
+  table, silently dropping those plays. The player now sends track metadata
+  with each play so first-time tracks land in the library.
+- **Backups restored play counts as zero** (the field was exported but
+  never imported); restore now keeps the higher of local/backup counts.
+- **Concurrent downloads corrupted files**: double-clicking download
+  spawned two yt-dlp processes writing the same `.part` file (server), and
+  two Android workers could do the same; both sides now dedupe. Deleting a
+  track mid-download no longer resurrects it when the worker finishes.
+- **Saved offline audio was wiped on every update**: the service worker's
+  activate handler deleted *all* caches including the audio/image ones
+  while the "saved on this device" flags survived — offline playback 404'd
+  after each shell update. Only stale shell versions are removed now.
+
+### Playback & UI
+- Skipping a broken track no longer cancels a track you started during the
+  900 ms skip delay; the one-shot resume-seek can no longer leak onto a
+  different track; the sleep-timer fade no longer advances into (and then
+  kills) the next track; removing a queued track no longer discards your
+  drag-reordered order; OS media-key handlers are state-guarded and the
+  OS playback state stays in sync; reopening the now-playing overlay within
+  its 280 ms close animation no longer gets hidden underneath you.
+- The sleep-timer countdown no longer ticks forever if the dialog is
+  dismissed with Escape; offline likes apply immediately with a "syncs
+  when back online" note instead of erroring; localStorage-blocked
+  browsers boot and play instead of dying at startup.
+- Search and Import views actually unmount now (their debounce/abort
+  hooks were dead code — searches kept firing after navigation); the
+  Library view tolerates navigating away mid-load; rapid radio generations
+  no longer race; "Load more" in History keeps your scroll position.
+- Mobile: the two-row player bar no longer covers the bottom of the page,
+  queue drawer and toasts (`--player-h` now matches reality), and the
+  Settings gear icon is visible again on phones.
+
+### Server services
+- **Lyrics outage poisoned the cache**: a network failure to LRCLIB was
+  cached as a 7-day "no lyrics" miss (even forcing a refresh re-poisoned
+  it). Real outages are no longer cached; genuinely lyric-less tracks
+  still are. Malformed lyric responses no longer 500 the endpoint.
+- **AppImage self-update could leave the server down**: the relaunch
+  script dropped the `--local` flag, so an updated desktop could pop the
+  connect dialog headless with the old process already gone. The desktop
+  also persists flag-driven modes now, so a relaunch restores the same
+  setup. "Update yt-dlp only" no longer pretends to succeed inside
+  packaged builds (it can't — the interpreter is the app binary).
+- Update jobs refuse to run concurrently; the stream-URL cache no longer
+  grows unbounded; the LLM curator tolerates non-object API responses.
+
+### Android
+- **Sticky-restart crash**: if the OS killed the process while playing,
+  the restarted media service hit its null-state early-return without
+  calling `startForeground()` — a deterministic `ForegroundServiceDidNotStart`
+  crash. It now promotes first and stops cleanly when there's nothing to show.
+- The playback wakelock is released on pause (it used to be held up to
+  four hours after playback stopped); the destroyed activity no longer
+  leaks through the service's static host (notification controls die with
+  the UI); the cover-art thread pool shuts down.
+- **Back-button trap on the offline page**: Back looped between error
+  pages and the Retry button reloaded the local error page instead of the
+  server. Back now exits; Retry actually re-dials the server. SSL-warning
+  dialogs appear once per session instead of stacking per resource;
+  external-link detection compares hosts exactly (a server at 10.0.0.23
+  no longer swallows links to 10.0.0.2).
+
+### Desktop & install
+- **First-run crash**: the connect dialog created a QApplication and the
+  main path created a second one — PySide6 aborts the process on the
+  second construction, so a fresh install died right after "Connect".
+  One application object is created and reused; the single-instance name
+  is also claimed before boot (two simultaneous launches can't both
+  double-boot), the smoke test can no longer pass vacuously against a
+  stale instance socket (and the AppImage build asserts `SMOKE_OK`), and
+  malformed CLI flags print usage instead of a traceback.
+- The systemd unit's sandbox now follows the chosen data directory
+  (custom `--dir` installs used to crash-loop under `ProtectHome`), the
+  installer accepts "degraded" systemd states (any server with one failed
+  unit used to silently skip service setup), and its health check probes
+  the address it actually bound.
+
 ## v0.7.1 — 2026-10-04
 
 The idle-resource release: the desktop client no longer burns a CPU core

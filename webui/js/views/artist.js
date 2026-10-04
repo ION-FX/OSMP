@@ -45,7 +45,7 @@ export async function mount(root, params) {
   host.innerHTML = `
     <div class="detail-head" id="ar-head" style="--ph:${hue}">
       ${coverSrc
-        ? `<img class="detail-cover round" src="${coverSrc}" alt="" onerror="__thumbErr(this)">`
+        ? `<img class="detail-cover round" src="${escapeHtml(coverSrc)}" alt="" onerror="__thumbErr(this)">`
         : `<div class="detail-cover round" style="display:flex;align-items:center;justify-content:center;
              background:linear-gradient(135deg, hsl(${hue} 60% 34%), hsl(${(hue + 70) % 360} 70% 50%));color:#fff">
              ${escapeHtml((data.artist || '?').slice(0, 1).toUpperCase())}</div>`}

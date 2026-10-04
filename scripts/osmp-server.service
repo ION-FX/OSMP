@@ -19,7 +19,7 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
-ReadWritePaths=/var/lib/osmp
+ReadWritePaths=__OSMP_DATA__
 
 [Install]
 WantedBy=multi-user.target

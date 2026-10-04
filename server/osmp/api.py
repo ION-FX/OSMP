@@ -94,19 +94,23 @@ def _session_response(user: dict) -> JSONResponse:
     return resp
 
 
+_setup_lock = threading.Lock()
+
+
 @router.post("/setup")
 def setup(body: SetupIn):
     """Create the first (admin) account. Refuses once any user exists."""
-    if not auth.setup_required():
-        raise HTTPException(403, "this server already has an admin account")
-    try:
-        user = auth.create_user(body.username, body.password, role="admin")
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    if (body.name or "").strip():
-        db.set_setting("server_name", body.name.strip()[:60])
-    db.set_setting("access_pin", "")  # PIN auth is retired by accounts
-    return _session_response(user)
+    with _setup_lock:  # two racing first-claims must not both become admin
+        if not auth.setup_required():
+            raise HTTPException(403, "this server already has an admin account")
+        try:
+            user = auth.create_user(body.username, body.password, role="admin")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if (body.name or "").strip():
+            db.set_setting("server_name", body.name.strip()[:60])
+        db.set_setting("access_pin", "")  # PIN auth is retired by accounts
+        return _session_response(user)
 
 
 @router.post("/auth/login")
@@ -173,8 +177,10 @@ def users_password(request: Request, user_id: int, body: PasswordIn):
         auth.set_password(user_id, body.password)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    if user["role"] != "admin" or user_id == user["id"]:
-        auth.drop_session(_token_from(request))  # re-login after self password change
+    # a password reset invalidates every session the account holds —
+    # otherwise an admin locking out a compromised account leaves the
+    # attacker's cookies valid for the full 30-day window
+    auth.drop_user_sessions(user_id)
     return {"ok": True}
 
 
@@ -528,8 +534,14 @@ def library_download(body: DownloadIn, request: Request):
     row = db.get_track(body.video_id)
     if row and row.get("file_path") and Path(row["file_path"]).exists():
         return {"job_id": None, "already": True, "track": _track_out(row)}
-    job_id = uuid.uuid4().hex[:12]
     with _jobs_lock:
+        # one download per video at a time — two overlapping yt-dlp runs
+        # would interleave writes into the same .part file
+        for jid, job in _jobs.items():
+            if (job.get("video_id") == body.video_id
+                    and job.get("status") in ("queued", "downloading", "processing")):
+                return {"job_id": jid, "already": False}
+        job_id = uuid.uuid4().hex[:12]
         _jobs[job_id] = {"status": "queued", "progress": 0.0, "video_id": body.video_id,
                          "started": time.time()}
         # prune old finished jobs
@@ -996,7 +1008,9 @@ def update_apply(request: Request, body: UpdateApplyIn):
 
 
 @router.get("/update/status/{job_id}")
-def update_status(job_id: str):
+def update_status(job_id: str, request: Request):
+    # update jobs are started by admins; their logs aren't listener material
+    require_admin(request)
     try:
         return update.job_status(job_id)
     except update.UpdateError as exc:
@@ -1051,11 +1065,27 @@ def settings_put(request: Request, body: dict):
 
 class HistoryIn(BaseModel):
     track_id: str
+    title: str | None = None
+    artist: str | None = None
+    duration: float | None = None
+    thumbnail: str | None = None
 
 
 @router.post("/history")
 def history_record(request: Request, body: HistoryIn):
     user = require_user(request)
+    # every stats/history query joins tracks — a play of a track the server
+    # has never seen (search result, straight to playback) would otherwise
+    # be recorded and then silently dropped by those joins
+    if not db.get_track(body.track_id) and youtube.is_video_id(body.track_id):
+        db.upsert_track({
+            "id": body.track_id,
+            "title": body.title or body.track_id,
+            "artist": body.artist or "Unknown artist",
+            "duration": body.duration,
+            "thumbnail": body.thumbnail,
+            "source": "youtube",
+        })
     db.record_play(body.track_id, user_id=str(user["id"]))
     return {"ok": True}
 
@@ -1072,7 +1102,8 @@ def home(request: Request):
         playlists = []
     stats = {
         "library_tracks": len(db.list_tracks(offline_only=True, limit=10000)),
-        "playlists": len(db.list_playlists()),
+        # per-user visibility: never leak how many playlists the server holds
+        "playlists": len(db.list_playlists_for_user(uid)) if uid is not None else 0,
     }
     return {"recent": recent, "downloads": offline, "playlists": playlists, "stats": stats}
 

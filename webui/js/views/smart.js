@@ -48,7 +48,7 @@ export function smartCoverArt(emoji, size = 36) {
   if (emoji && emoji.startsWith('icon:')) {
     return `<span style="color:#fff;display:flex;align-items:center;justify-content:center">${icon(emoji.slice(5), size, true)}</span>`;
   }
-  const ch = emoji || '✨';
+  const ch = escapeHtml(emoji || '✨');
   return `<span style="font-size:${size}px;line-height:1">${ch}</span>`;
 }
 
@@ -465,4 +465,10 @@ async function mountEditor(root, existing, seedSpec) {
 
 function clampLimit(v) {
   return Math.min(500, Math.max(1, Math.round(Number(v) || 50)));
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }

@@ -98,7 +98,7 @@ export async function mount(root, params) {
     body.innerHTML = `
       <div class="detail-head" id="imp-head">
         ${cover
-          ? `<img class="detail-cover" src="${cover}" alt="" onerror="__thumbErr(this)">`
+          ? `<img class="detail-cover" src="${escapeHtml(cover)}" alt="" onerror="__thumbErr(this)">`
           : `<div class="detail-cover" style="display:flex;align-items:center;justify-content:center;background:var(--grad);color:#fff">${icon('music', 54)}</div>`}
         <div class="detail-meta grow">
           <div class="detail-kind">${kind} · YouTube import</div>
@@ -148,7 +148,7 @@ export async function mount(root, params) {
       row.innerHTML = `
         <span class="tl-idx"><input type="checkbox" class="imp-check" checked aria-label="Import this track"></span>
         <span class="tl-main">
-          <img class="tl-cover" loading="lazy" src="${thumbUrl(t, 'hq')}" alt="" onerror="__thumbErr(this)">
+          <img class="tl-cover" loading="lazy" src="${escapeHtml(thumbUrl(t, 'hq'))}" alt="" onerror="__thumbErr(this)">
           <span class="grow" style="min-width:0">
             <span class="tl-title ellipsis" style="display:block"></span>
             <span class="tl-artist ellipsis" style="display:block"></span>
@@ -229,6 +229,8 @@ export async function mount(root, params) {
     emptyState();
     setTimeout(() => input.focus(), 120);
   }
+
+  return { unmount };  // router hook — cancels in-flight previews on navigation
 }
 
 export function unmount() {

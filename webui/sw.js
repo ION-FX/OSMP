@@ -3,7 +3,7 @@
  * dedicated cache: full (non-Range) fetches are stored, and when the server
  * is down cached tracks are served so saved music keeps playing. */
 
-const CACHE = 'osmp-shell-v15';
+const CACHE = 'osmp-shell-v16';
 const AUDIO_CACHE = 'osmp-audio-v1';
 const SHELL = [
   '/',
@@ -53,7 +53,12 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // only stale *shell* versions die here — the audio cache holds saved
+      // offline tracks and the image cache holds covers; wiping them on a
+      // shell update made "saved" tracks 404 after every app update
+      .then(keys => Promise.all(keys
+        .filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'osmp-imgs-v1')
+        .map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

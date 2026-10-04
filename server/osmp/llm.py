@@ -100,7 +100,7 @@ def curate(prompt: str, count: int = 20, timeout: float = 90.0) -> dict:
         raise LLMError(f"LLM API error {r.status_code}: {r.text[:200]}")
     try:
         content = r.json()["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, ValueError) as exc:
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise LLMError("Unexpected LLM response shape") from exc
 
     data = _extract_json(content)

@@ -168,10 +168,10 @@
   .nav-badge { display: none; }
   .sidebar-section { display: none; }
   .sidebar-footer { border: 0; padding: 0 10px 0 0; margin-left: auto; }
-  #btn-settings span { display: none; }
+  #btn-settings span:not(.nav-ico) { display: none; }
   #btn-settings { width: auto; padding: 9px; justify-content: center; }
   .offline-pill { display: none !important; }
-  :root { --player-h: 66px; }
+  :root { --player-h: 120px; }  /* the bar is two rows on touch layouts (see player.css ≤900px) */
   .pb-meta, .pb-timeline .pb-time { display: none; }
 }
 

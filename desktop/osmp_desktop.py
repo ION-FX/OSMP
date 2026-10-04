@@ -252,8 +252,20 @@ def connect_dialog(qapp) -> dict | None:
 
 def main() -> int:
     args = sys.argv[1:]
-    flag = lambda name: (args[args.index(name) + 1] if name in args else None)  # noqa: E731
-    port = int(flag("--port")) if flag("--port") else _free_port()
+
+    def flag(name):
+        i = args.index(name) if name in args else -1
+        return args[i + 1] if 0 <= i < len(args) - 1 else None
+
+    port = None
+    if flag("--port"):
+        try:
+            port = int(flag("--port"))
+        except ValueError:
+            print("invalid --port (expected a number)", file=sys.stderr)
+            return 2
+    if port is None:
+        port = _free_port()
     data_dir = flag("--data")
     browser_mode = "--browser" in args
     smoke = "--smoke" in args
@@ -277,17 +289,38 @@ def main() -> int:
         print("OSMP is already running — brought it to the front")
         return 0
 
+    # one QApplication for the whole run — the connect dialog needs one too,
+    # and constructing a second one aborts the process (PySide6 singleton)
+    qapp = None
+    _show = {"fn": None}
+    if not browser_mode:
+        from PySide6.QtWidgets import QApplication
+        qapp = QApplication.instance() or QApplication(sys.argv[:1])
+        qapp.setApplicationName("OSMP")
+        qapp.setOrganizationName("OSMP")
+        icon_path = _resource_dir() / "webui" / "icons" / "icon-512.png"
+        if icon_path.exists():
+            from PySide6.QtGui import QIcon
+            qapp.setWindowIcon(QIcon(str(icon_path)))
+        # claim the single-instance name NOW, before any server/dialog work —
+        # claiming after boot left a window where two launches both started
+        if not smoke and not claim_single_instance(lambda: _show["fn"] and _show["fn"]()):
+            print("OSMP is already running — brought it to the front")
+            return 0
+
     if client_url is None:
         if browser_mode:
             cfg = {"mode": "local"}  # helper mode always uses the bundled server
         elif not cfg or cfg.get("mode") not in ("client", "local"):
-            from PySide6.QtWidgets import QApplication
-            qapp = QApplication(sys.argv[:1])
-            qapp.setApplicationName("OSMP")
             chosen = connect_dialog(qapp)
             if not chosen:
                 return 0
             cfg = chosen
+
+    # remember flag-driven modes so a self-update relaunch (which re-runs the
+    # binary with no flags) restores the same setup instead of the dialog
+    if not smoke and not load_cfg().get("mode") and cfg.get("mode"):
+        save_cfg({k: cfg[k] for k in ("mode", "url", "token") if k in cfg})
 
     if cfg["mode"] == "local":
         start_local_server(port, data_dir)
@@ -318,16 +351,7 @@ def main() -> int:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
     from PySide6.QtCore import QUrl, QTimer
-    from PySide6.QtGui import QIcon
-    from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
-
-    qapp = QApplication(sys.argv[:1])
-    qapp.setApplicationName("OSMP")
-    qapp.setOrganizationName("OSMP")
-    icon_path = _resource_dir() / "webui" / "icons" / "icon-512.png"
-    if icon_path.exists():
-        qapp.setWindowIcon(QIcon(str(icon_path)))
-
+    from PySide6.QtWidgets import QMainWindow, QSystemTrayIcon, QMenu
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
     win = QMainWindow()
@@ -336,9 +360,8 @@ def main() -> int:
     view = QWebEngineView(win)
     win.setCentralWidget(view)
 
-    if not claim_single_instance(lambda: (win.show(), win.raise_(), win.activateWindow())):
-        print("OSMP is already running — brought it to the front")
-        return 0
+    # the window exists — a second launch's "show" request lands here
+    _show["fn"] = lambda: (win.show(), win.raise_(), win.activateWindow())
 
     if session_token:
         from PySide6.QtNetwork import QNetworkCookie
