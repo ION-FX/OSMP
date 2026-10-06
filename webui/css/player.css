@@ -148,7 +148,11 @@
 }
 .qd-item:hover { background: var(--bg-2); }
 .qd-item.current { background: var(--accent-soft); }
-.qd-item.dragging { opacity: .4; }
+.qd-item.dragging {
+  opacity: .92; position: relative; z-index: 5;
+  background: var(--bg-2, #1a2230); box-shadow: var(--shadow-lg);
+  transition: none;
+}
 .qd-item img { width: 40px; height: 40px; border-radius: var(--r-xs); object-fit: cover; flex-shrink: 0; }
 .qd-item .qd-meta { flex: 1; min-width: 0; }
 .qd-item .qd-title { font-size: 13.3px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

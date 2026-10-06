@@ -93,22 +93,25 @@
 
   <!-- ══════════════ main view ══════════════ -->
   <main id="view-root" class="scroll-y" tabindex="-1"></main>
-
-  <!-- ══════════════ queue drawer ══════════════ -->
-  <section id="queue-drawer" aria-label="Play queue" aria-hidden="true">
-    <header class="qd-head">
-      <h2>Queue</h2>
-      <div class="qd-actions">
-        <button id="qd-clear-upcoming" class="text-btn" title="Remove everything after the current track">Clear upcoming</button>
-        <button id="qd-clear" class="text-btn" title="Clear queue">Clear</button>
-        <button id="qd-close" class="icon-btn" title="Close" data-icon-btn="close"></button>
-      </div>
-    </header>
-    <div id="qd-now"></div>
-    <div id="qd-list" class="scroll-y"></div>
-  </section>
-  <div id="queue-backdrop" class="hidden"></div>
 </div>
+
+<!-- ══════════════ queue drawer ══════════════ -->
+<!-- body-level on purpose: #app is a stacking context (z-index:1), and the
+     drawer must stack against the player bar / now-playing overlay — from
+     which the phone opens it. Inside #app it slid in underneath, invisible. -->
+<section id="queue-drawer" aria-label="Play queue" aria-hidden="true">
+  <header class="qd-head">
+    <h2>Queue</h2>
+    <div class="qd-actions">
+      <button id="qd-clear-upcoming" class="text-btn" title="Remove everything after the current track">Clear upcoming</button>
+      <button id="qd-clear" class="text-btn" title="Clear queue">Clear</button>
+      <button id="qd-close" class="icon-btn" title="Close" data-icon-btn="close"></button>
+    </div>
+  </header>
+  <div id="qd-now"></div>
+  <div id="qd-list" class="scroll-y"></div>
+</section>
+<div id="queue-backdrop" class="hidden"></div>
 
 <!-- ══════════════ player bar ══════════════ -->
 <footer id="player-bar" class="hidden">

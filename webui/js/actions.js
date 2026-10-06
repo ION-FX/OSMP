@@ -208,7 +208,9 @@ function pollNative(trackId, buttonEl) {
       toastOk('Saved on device', { icon: 'download-check' });
     } else if (st.status === 'error') {
       clearInterval(tick); nativePolls.delete(trackId);
-      toastErr('Device download failed');
+      // the worker's reason (e.g. "HTTP 401") is the only debugging signal
+      // the user can act on — show it, never a bare "failed"
+      toastErr(`Download failed — ${st.error || 'device error'}`);
     }
   }, 800);
   nativePolls.set(trackId, tick);

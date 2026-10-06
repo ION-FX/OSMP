@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.7.5 — 2026-10-06
+
+Fixes for the two things that were still broken on phones: the queue was
+unreachable, and device downloads could fail silently.
+
+### Fixed — queue on the phone (the real root cause)
+- **The queue drawer opened underneath the Now Playing overlay.** The
+  drawer lived inside `#app` (a z-index:1 stacking context) while the
+  overlay sits at body level (z-index 300), so no z-index on the drawer
+  could ever win. Since the phone's only queue button lives in the
+  overlay, opening the queue did nothing visible and taps fell through
+  to whatever was behind it. The drawer + backdrop now live at body
+  level (above the Now Playing and lyrics overlays, below modals and
+  menus). This affected desktop too whenever the queue was opened from
+  the Now Playing overlay.
+- **Queue reorder now works on touch**: long-press (~0.3s) an item to
+  lift it, drag, release to drop — HTML5 drag-and-drop never fires on
+  touch screens, so phones previously had no way to reorder at all.
+  Mouse drag is unchanged.
+- Regression-tested: the suite now opens the queue through the overlay
+  on a 390px touch viewport, asserts the drawer is actually on top, and
+  taps an item to confirm it plays.
+
+### Fixed — Android downloads
+- The session cookie is now read on the UI thread (with a latch and a
+  cached fallback) both in the download bridge and in the new Auto
+  playback path — calling CookieManager directly from a WebView bridge
+  thread throws on some devices, which would have made downloads 401
+  again even with v0.7.4.
+- A failed device download now toasts the worker's actual error (e.g.
+  "HTTP 401") instead of a bare "failed".
+- Reminder: the Android app does not self-update — install the new APK
+  from the Releases page; downloads have been broken on-device since
+  server auth existed until v0.7.4 (401) for anyone on an older build.
+
 ## v0.7.4 — 2026-10-06
 
 The car release: Android Auto / Bluetooth AVRCP media browsing, plus a

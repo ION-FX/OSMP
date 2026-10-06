@@ -115,9 +115,12 @@
 .view-head .spacer { flex: 1; }
 
 /* ——— queue drawer ——— */
+/* z-stack: it must sit ABOVE the now-playing (300) and lyrics (320)
+   overlays — the phone opens the queue from the np overlay, and at 120
+   the drawer used to slide in underneath, invisible and untappable. */
 #queue-drawer {
   position: fixed; top: 10px; bottom: calc(var(--player-h) + 10px); right: 0;
-  width: min(380px, 92vw); z-index: 120;
+  width: min(380px, 92vw); z-index: 440;
   background: var(--bg-1);
   border: 1px solid var(--glass-border); border-right: 0;
   border-radius: var(--r-lg) 0 0 var(--r-lg);
@@ -129,7 +132,7 @@
 }
 #queue-drawer.open { transform: none; visibility: visible; }
 #queue-backdrop {
-  position: fixed; inset: 0; z-index: 110; background: var(--overlay);
+  position: fixed; inset: 0; z-index: 430; background: var(--overlay);
   opacity: 0; transition: opacity .3s var(--ease); backdrop-filter: blur(2px);
 }
 #queue-backdrop.show { opacity: 1; }

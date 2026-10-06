@@ -10,6 +10,7 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.view.KeyEvent;
 import android.webkit.CookieManager;
@@ -89,6 +90,33 @@ public class MainActivity extends Activity {
 
     public WebView getWeb() { return web; }
     public String getServerUrl() { return serverUrl; }
+
+    private volatile String cookieCache = "";
+
+    /** Session cookie for the server, read on the UI thread. Bridge and
+     *  service threads must not touch CookieManager directly (it throws on
+     *  some WebView providers when called off the UI thread), so bounce the
+     *  read through the main looper and cache the last good value. */
+    public String serverCookie() {
+        final java.util.concurrent.CountDownLatch latch =
+                new java.util.concurrent.CountDownLatch(1);
+        final String[] out = {cookieCache};
+        Runnable read = () -> {
+            try {
+                String c = CookieManager.getInstance().getCookie(serverUrl);
+                if (c != null && !c.isEmpty()) {
+                    cookieCache = c;
+                    out[0] = c;
+                }
+            } catch (Throwable ignored) { }
+            latch.countDown();
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) read.run();
+        else runOnUiThread(read);
+        try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+        catch (InterruptedException ignored) { }
+        return out[0];
+    }
 
     public void setWakeLock(boolean on) {
         if (wakeLock == null) return;

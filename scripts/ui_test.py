@@ -715,6 +715,41 @@ def main():
         })""")
         check("mobile: per-row download + queue remove visible without hover",
               afford["dl"] == "1" and afford["x"] in ("1", "missing"), str(afford))
+
+        # v0.7.5 regression: the queue drawer used to slide in UNDER the
+        # now-playing overlay (stacking context) — on phones the overlay is
+        # the only path to the queue, so it was invisible and taps fell
+        # through to whatever was behind
+        mp.click("#pb-title")
+        time.sleep(0.6)
+        mp.click("#np-queue")
+        time.sleep(0.9)
+        qp = mp.evaluate("""() => {
+            const d = document.getElementById('queue-drawer');
+            const item = d.querySelector('#qd-list .qd-item');
+            if (!item) return {err: 'no queue items'};
+            const r = item.getBoundingClientRect();
+            const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            return {open: d.classList.contains('open'),
+                    topInDrawer: d.contains(top),
+                    title: item.querySelector('.qd-title').textContent};
+        }""")
+        check("mobile: queue drawer opens above now-playing",
+              bool(qp.get("open")) and qp.get("topInDrawer") is True, str(qp))
+        # tap the first item precisely and expect the track to change
+        qp2 = mp.evaluate("""() => {
+            const item = document.querySelector('#qd-list .qd-item');
+            const r = item.getBoundingClientRect();
+            return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+                    title: item.querySelector('.qd-title').textContent};
+        }""")
+        mp.touchscreen.tap(qp2["x"], qp2["y"])
+        time.sleep(1.6)
+        got = (mp.text_content("#pb-title") or "").strip()
+        check("mobile: tapping a queue item plays it",
+              qp2["title"] in got or got in qp2["title"],
+              f"want={qp2['title']!r} got={got!r}")
+        shot(mp, "m3-queue-drawer")
         mctx.close()
 
         # ── home with playback history ────────────────────────

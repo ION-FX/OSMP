@@ -833,13 +833,29 @@ public class MediaService extends MediaBrowserService {
         return u;
     }
 
+    /** Session cookie for browse/playback requests. CookieManager is only
+     *  safe from the main thread, so reads bounce through the main looper
+     *  (never from the main thread itself — that would deadlock on the
+     *  latch); when no cookie is available auth-gated nodes come back empty. */
     private String sessionCookie() {
+        String base = serverUrl();
+        if (base == null) return null;
         try {
-            String base = serverUrl();
-            if (base == null) return null;
-            return android.webkit.CookieManager.getInstance().getCookie(base);
-        } catch (Throwable t) {
-            // no WebView provider in this process — auth-gated nodes just come back empty
+            final java.util.concurrent.CountDownLatch latch =
+                    new java.util.concurrent.CountDownLatch(1);
+            final String[] out = {null};
+            Runnable read = () -> {
+                try {
+                    out[0] = android.webkit.CookieManager.getInstance().getCookie(base);
+                } catch (Throwable ignored) { }
+                latch.countDown();
+            };
+            if (Looper.myLooper() == Looper.getMainLooper()) read.run();
+            else new Handler(Looper.getMainLooper()).post(read);
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            return out[0];
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return null;
         }
     }

@@ -1014,7 +1014,7 @@ export function renderQueueDrawer() {
       e.stopPropagation();
       removeFromQueue(qi);
     };
-    item.onclick = () => jumpTo(qi);
+    item.onclick = () => { if (!item._skipClick) jumpTo(qi); };
     item.addEventListener('dragstart', (e) => {
       dragFrom = +item.dataset.opos;
       item.classList.add('dragging');
@@ -1028,11 +1028,71 @@ export function renderQueueDrawer() {
       const to = +item.dataset.opos;
       if (dragFrom !== null && to !== dragFrom) moveInQueue(dragFrom, to);
     });
+    bindTouchReorder(item, list);
     list.appendChild(item);
   });
 }
 
 function safeJson(o) { try { return JSON.stringify(o); } catch { return '{}'; } }
+
+// HTML5 drag-and-drop never fires on touch, so the queue was unreorderable
+// on phones. Long-press (~260ms) lifts an item, drag to reposition, release
+// commits — mouse devices keep native DnD and never enter this path.
+function bindTouchReorder(item, list) {
+  if (!window.matchMedia('(hover: none)').matches) return;
+  let pressTimer = null, dragging = false, startY = 0, fromOpos = 0;
+
+  const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+
+  item.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { cancel(); return; }
+    startY = e.touches[0].clientY;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      dragging = true;
+      fromOpos = +item.dataset.opos;
+      item.classList.add('dragging');
+      try { navigator.vibrate?.(12); } catch { /* no haptics */ }
+    }, 260);
+  }, { passive: true });
+
+  item.addEventListener('touchmove', (e) => {
+    if (!dragging) {
+      // moved before the lift → that's a scroll, not a drag
+      if (pressTimer && Math.abs(e.touches[0].clientY - startY) > 10) cancel();
+      return;
+    }
+    e.preventDefault();  // hold the list still while the item is lifted
+    const y = e.touches[0].clientY;
+    item.style.transform = `translateY(${y - startY}px)`;
+    for (const sib of list.querySelectorAll('.qd-item:not(.dragging)')) {
+      const r = sib.getBoundingClientRect();
+      if (y > r.top && y < r.bottom) {
+        list.insertBefore(item, y < r.top + r.height / 2 ? sib : sib.nextSibling);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  const drop = () => {
+    cancel();
+    if (!dragging) return;
+    dragging = false;
+    item.classList.remove('dragging');
+    item.style.transform = '';
+    // the release also synthesizes a click — don't jump to the dragged track
+    item._skipClick = true;
+    setTimeout(() => { item._skipClick = false; }, 350);
+    // final visual index → order position: the list covers the contiguous
+    // order slots after the current track, starting at the first item's slot
+    const items = [...list.querySelectorAll('.qd-item')];
+    const first = Math.min(...items.map(el => +el.dataset.opos));
+    const to = first + items.indexOf(item);
+    if (to !== fromOpos) moveInQueue(fromOpos, to);
+  };
+  item.addEventListener('touchend', drop);
+  item.addEventListener('touchcancel', drop);
+}
 
 // attribute-safe escaping — thumbnails come from the server (and restored
 // backups), so their URLs never go into markup raw
