@@ -38,7 +38,18 @@ public class OsmpBridge {
             String base = activity.getServerUrl();
             if (base != null) url = base + (url.startsWith("/") ? url : "/" + url);
         }
-        store.download(id, url, title, artist);
+        store.download(id, url, title, artist, serverCookie());
+    }
+
+    /** The server gates every /api path — downloads need the WebView's cookie. */
+    private String serverCookie() {
+        try {
+            String base = activity.getServerUrl();
+            if (base == null) return null;
+            return android.webkit.CookieManager.getInstance().getCookie(base);
+        } catch (Throwable t) {
+            return null;  // no WebView provider usable from here
+        }
     }
 
     @JavascriptInterface

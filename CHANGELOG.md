@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.7.4 — 2026-10-06
+
+The car release: Android Auto / Bluetooth AVRCP media browsing, plus a
+native playback path so OSMP plays even when the app UI isn't running.
+
+### Added — Android Auto & Bluetooth browsing (Android)
+- The media service now exposes a real browse tree: **Recently played,
+  Playlists, Artists, Uploads** — playlists and artists expand to their
+  tracks on the head unit. Voice search ("play X on OSMP") hits server
+  search and starts the queue.
+- **Native playback**: when the phone UI isn't alive (the normal case in
+  a car), the service itself streams from the server with a MediaPlayer
+  (m4a/AAC first, opus fallback), owns the queue, handles next/prev/seek,
+  audio focus (duck/pause), headphone-unplug pause, and its own wake
+  lock. Opening the phone app and pressing play hands playback back to
+  the web UI; swiping the app away no longer kills car playback.
+- Lock-screen/notification media state now carries real position and
+  duration (visible as a seekbar on cars and Bluetooth metadata), and
+  the transport protocol gained `seek:<sec>` plus a working `noop`
+  re-announce after page reloads.
+- Security: the browse root is only handed to the app itself, Android
+  Auto, and platform-signed clients (system Bluetooth, Automotive).
+- Zero new dependencies — built on the framework `MediaBrowserService`.
+  Note: real head-unit behavior needs testing on actual hardware (or
+  Android Studio's Desktop Head Unit); the service contract, manifest
+  wiring, endpoints, and auth path are verified here.
+
+### Fixed — Android
+- **On-device downloads were silently failing with 401**: the server
+  gates every `/api` path behind auth, but the download worker sent no
+  credentials. It now rides the WebView's session cookie — same for the
+  new native playback path.
+
 ## v0.7.3 — 2026-10-06
 
 The phone release: a full mobile-viewport pass (390 px, touch) over every

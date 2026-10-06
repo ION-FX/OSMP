@@ -85,11 +85,15 @@ export function jumpTo(queueIdx) {
 // payload with only `playing` used to wipe the title/artist there.
 function notifyMediaState(playingOverride) {
   const t = get('current');
+  const a = audio();
   bridge()?.notifyMedia?.(safeJson({
     title: t?.title || '',
     artist: t?.artist || '',
     cover: t ? thumbUrl(t) : '',
     playing: playingOverride !== undefined ? playingOverride : !!get('playing'),
+    // real position/duration — car head units and BT metadata show a seekbar
+    pos: Math.floor(a?.currentTime || 0),
+    dur: Math.round(a?.duration || 0),
   }));
 }
 
@@ -926,15 +930,29 @@ export function initPlayer() {
   el.sleep.onclick = () => window._osmpOpenSleepDialog?.();
   document.getElementById('np-sleep').onclick = () => window._osmpOpenSleepDialog?.();
 
-  // native app hooks (Android media notification / lock-screen controls)
+  // native app hooks (Android media notification / lock-screen controls /
+  // Android Auto transport) — seek arrives as "seek:<seconds>"
   window.__osmpMedia = (action) => {
+    if (typeof action === 'string' && action.startsWith('seek:')) {
+      const sec = Number(action.slice(5));
+      const a = audio();
+      if (Number.isFinite(sec) && sec >= 0 && a) {
+        try {
+          a.currentTime = Number.isFinite(a.duration)
+            ? Math.min(sec, Math.max(0, a.duration - 0.5))
+            : sec;
+        } catch { /* seek before metadata — ignored */ }
+      }
+      return;
+    }
     const map = {
       play: () => { if (!get('playing')) toggle(); },
       pause: () => { if (get('playing')) toggle(); },
       toggle,
       next: () => next(false),
       prev,
-      stop: () => { a.pause(); set({ playing: false }); updatePlayButton(); },
+      stop: () => { const a = audio(); a.pause(); set({ playing: false }); updatePlayButton(); },
+      noop: () => notifyMediaState(),  // re-announce after page reloads
     };
     map[action]?.();
   };

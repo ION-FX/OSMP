@@ -212,6 +212,21 @@ def main():
               mstate["n"] >= 3 and mstate["noTitle"] == 0 and bool(mstate["last"].get("artist")),
               str(mstate))
 
+        # v0.7.4: the car/lock-screen needs real position + duration for its
+        # seekbar, and Android Auto transport arrives as seek:/noop actions
+        check("media: payload carries pos and dur",
+              isinstance(mstate["last"].get("dur"), (int, float))
+              and mstate["last"].get("dur", 0) > 0
+              and isinstance(mstate["last"].get("pos"), (int, float)),
+              str(mstate["last"]))
+        page.evaluate("window.__osmpMedia && __osmpMedia('seek:45')")
+        time.sleep(0.8)
+        pos = page.evaluate("document.getElementById('audio-el').currentTime")
+        check("media: __osmpMedia seek works", pos >= 40, f"currentTime={pos}")
+        page.evaluate("window.__osmpMedia && __osmpMedia('noop')")
+        check("media: __osmpMedia noop harmless",
+              page.evaluate("typeof window.__osmpMedia === 'function'"))
+
         # repeat cycle
         page.click("#pb-repeat"); time.sleep(0.2)
         check("controls: repeat all", "Repeat queue" in (page.get_attribute("#pb-repeat", "title") or ""))

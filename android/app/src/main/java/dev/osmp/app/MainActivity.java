@@ -123,9 +123,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         // the WebView dies with this activity, so playback (and the
-        // notification controlling it) must die too
+        // notification controlling it) must die too — except when the
+        // service is playing natively for Android Auto, which outlives the UI
         MediaService.clearHost(this);
-        MediaService.stop(this);
+        if (!MediaService.isNativeActive()) MediaService.stop(this);
         setWakeLock(false);
         if (web != null) web.destroy();
         super.onDestroy();

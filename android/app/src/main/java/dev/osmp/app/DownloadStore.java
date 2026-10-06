@@ -151,7 +151,7 @@ public class DownloadStore {
         return "m4a";
     }
 
-    public void download(String id, String url, String title, String artist) {
+    public void download(String id, String url, String title, String artist, String cookie) {
         if (isDownloaded(id)) return;
         State cur = states.get(id);
         if (cur != null && !cur.canceled
@@ -161,12 +161,12 @@ public class DownloadStore {
         State s = new State();
         s.status = "queued";
         states.put(id, s);
-        pool.submit(() -> run(id, url, title, artist));
+        pool.submit(() -> run(id, url, title, artist, cookie));
     }
 
     // ── worker ───────────────────────────────────────────────────────
 
-    private void run(String id, String url, String title, String artist) {
+    private void run(String id, String url, String title, String artist, String cookie) {
         State s = states.get(id);
         if (s == null) return;  // deleted between submit and start
         s.status = "downloading";
@@ -177,6 +177,9 @@ public class DownloadStore {
             c.setConnectTimeout(15000);
             c.setReadTimeout(30000);
             c.setRequestProperty("User-Agent", "OSMP-Android/0.1");
+            // every /api path sits behind the auth gate — without the
+            // WebView's session cookie the server answers 401
+            if (cookie != null && !cookie.isEmpty()) c.setRequestProperty("Cookie", cookie);
             int code = c.getResponseCode();
             if (code != 200) throw new IllegalStateException("HTTP " + code);
             long total = c.getContentLengthLong();
