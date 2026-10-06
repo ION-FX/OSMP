@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.7.3 — 2026-10-06
+
+The phone release: a full mobile-viewport pass (390 px, touch) over every
+view and overlay, driven by screenshots and geometry checks.
+
+### Fixed — "can't choose a song with shuffle on"
+- Tapping slightly low on a track row hit the invisible artist-link zone
+  that runs through the middle of every row — instead of playing your
+  song, the app navigated to the artist page. On touch devices the artist
+  line is no longer a link (the whole row plays); artist pages are
+  reachable via the row's ⋮ menu → **Go to artist** (new, works
+  everywhere). Verified: shuffle on + row tap plays exactly the tapped
+  track.
+
+### Fixed — mobile layout
+- **Player bar**: the track title/artist were hidden outright on phones,
+  leaving a lone cover thumbnail and dead space. The title is back
+  (single line, ellipsized), volume/queue/lyrics buttons make room.
+- **Top bar**: settings + the account chip wrapped below the 56 px bar and
+  icons overflowed. The bar is compact now and everything fits; the
+  account chip lives in **Settings → Account** (new section with
+  signed-in name + Sign out — the chip itself no longer fits).
+- **Playlist/album/artist headers**: the hero shrank from a centered
+  ~148 px cover stack into a compact row (cover left, title/actions
+  right) — track lists start one screen higher.
+- **Track rows**: tighter grid, bigger thumbs, no wasted gap before the
+  duration; the uppercase column header is gone on phones.
+- **Hover-only controls were invisible on touch**: the per-row download
+  button, card play buttons and the queue-drawer remove (✕) only
+  appeared on hover — permanently hidden on phones. All three are simply
+  visible on touch devices.
+- **Now-Playing overlay**: the action-button row had no wrap and overflowed
+  the screen; it wraps into two tidy rows now.
+- **Queue drawer**: header buttons fit one row again.
+- Modals, heroes and empty states use phone-appropriate padding; all
+  views verified free of horizontal overflow at 390 px.
+
+### Tests
+- New mobile section in the UI suite (phone viewport): overflow checks on
+  every view, gear visibility, sign-out presence, shuffle + row-tap
+  behavior, bar title visibility, hover-less affordances — 75 → 83 checks.
+
 ## v0.7.2 — 2026-10-04
 
 Full-codebase bug sweep (six parallel audits: server core, server services,

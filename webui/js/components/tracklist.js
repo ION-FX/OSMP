@@ -132,11 +132,15 @@ export function renderTracklist(host, tracks, opts = {}) {
 
 // ── drag reorder ─────────────────────────────────────────────────────
 
-// Artist names open the artist page; album cells under `albumAsPlays`
-// show play counts instead and stay inert.
+// Artist names open the artist page on pointer devices; album cells under
+// `albumAsPlays` show play counts instead and stay inert.
 function bindArtistLink(el, artist) {
   if (!el || !artist) { if (el) el.textContent = artist || ''; return; }
   el.textContent = artist;
+  // on touch the artist line runs through the middle of the row — a link
+  // there turns every slightly-low tap into navigation instead of playback
+  // (artist pages stay reachable via the row's ⋮ menu)
+  if (window.matchMedia('(hover: none)').matches) return;
   el.classList.add('artist-link');
   el.title = `Open ${artist}`;
   el.onclick = (e) => {

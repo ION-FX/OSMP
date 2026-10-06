@@ -156,6 +156,10 @@
 .qd-item .qd-artist { font-size: 11.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qd-item .qd-x { opacity: 0; }
 .qd-item:hover .qd-x { opacity: 1; }
+/* touch devices have no hover — the remove button must simply be visible */
+@media (hover: none) {
+  .qd-item .qd-x { opacity: 1; }
+}
 .qd-empty { color: var(--text-faint); font-size: 13px; text-align: center; padding: 30px 10px; }
 .qd-label { font-size: 10.5px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--text-faint); padding: 10px 10px 6px; }
 
@@ -211,7 +215,7 @@
   margin-bottom: 6px; overflow-wrap: anywhere;
 }
 .np-info > div:not(.np-actions) { color: var(--text-dim); font-size: 15px; }
-.np-actions { display: flex; gap: 6px; justify-content: center; margin-top: 20px; }
+.np-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 20px; }
 
 /* sleep timer dialog extras */
 .sleep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
@@ -240,10 +244,14 @@
   :root { --player-h: 120px; }
 }
 @media (max-width: 640px) {
-  .pb-track .pb-meta { max-width: 30vw; }
+  .pb-track .pb-meta { flex: 1; min-width: 0; }
   .pb-volume { display: none; }
   #pb-queue { display: none; }
   .mobile-only { display: inline-flex; }
+  /* keep the drawer header on one row at phone width */
+  .qd-head { padding: 12px 12px 8px; gap: 6px; }
+  .qd-head h2 { font-size: 15.5px; }
+  .qd-actions .text-btn { padding: 6px 6px; font-size: 12px; }
 }
 @media (min-width: 641px) {
   .mobile-only { display: none; }

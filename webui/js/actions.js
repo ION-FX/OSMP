@@ -545,6 +545,7 @@ export function showTrackMenu(x, y, track, extra = {}) {
     <button class="ctx-item" data-a="download">${icon(offline ? 'trash' : 'download', 16)} ${offline ? (isLocal ? 'Remove from library' : 'Remove download') : 'Download'}</button>
     ${dev ? `<button class="ctx-item" data-a="device">${icon(devSaved ? 'trash' : 'download', 16)} ${devSaved ? 'Remove from this device' : 'Save to this device'}</button>` : ''}
     <button class="ctx-item" data-a="radio">${icon('radio', 16)} Start radio from this</button>
+    ${track.artist ? `<button class="ctx-item" data-a="artist">${icon('user', 16)} Go to artist</button>` : ''}
     <div class="ctx-sep"></div>
     ${isLocal ? '' : `<button class="ctx-item" data-a="copy">${icon('link', 16)} Copy YouTube link</button>`}
     ${extra.remove ? `<button class="ctx-item danger" data-a="remove">${icon('close', 16)} Remove from this playlist</button>` : ''}
@@ -568,6 +569,7 @@ export function showTrackMenu(x, y, track, extra = {}) {
         ? `${track.artist || ''} ${track.title || ''}`.trim() : track.id;
       location.hash = `#/radio?seed=${encodeURIComponent(seed)}`;
     },
+    artist: () => { location.hash = `#/artist/${encodeURIComponent(track.artist)}`; },
     copy: () => {
       const url = `https://www.youtube.com/watch?v=${track.id}`;
       navigator.clipboard?.writeText(url).then(

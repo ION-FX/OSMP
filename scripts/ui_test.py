@@ -625,6 +625,83 @@ def main():
         time.sleep(1.2)
         check("radio: surprise button", page.locator("#rd-surprise").count() == 1)
 
+        # ── mobile viewport pass (v0.7.3): layout + touch behavior ──
+        mctx = browser.new_context(viewport={"width": 390, "height": 844},
+                                   device_scale_factor=2, has_touch=True)
+        mp = mctx.new_page()
+        mp.on("console", lambda m: console_errors.append(m.text)
+              if m.type == "error" else None)
+        mp.on("pageerror", lambda e: console_errors.append(str(e)))
+        mp.goto(BASE, wait_until="load", timeout=30000)
+        mp.wait_for_selector("#auth-form", state="visible", timeout=15000)
+        mp.fill("#auth-user", "admin")
+        mp.fill("#auth-pass", "osmp-admin")
+        mp.click("#auth-go")
+        mp.wait_for_selector("#app:not(.hidden)", timeout=20000)
+        time.sleep(1.2)
+
+        # no horizontal overflow on the main views at phone width
+        for h, wait in [("#/home", 1.5), ("#/library", 1.8), ("#/settings", 1.2)]:
+            mp.evaluate(f"location.hash='{h}'")
+            time.sleep(wait)
+            o = mp.evaluate("""() => ({
+                doc: document.documentElement.scrollWidth, win: window.innerWidth,
+                root: document.getElementById('view-root').scrollWidth,
+                rootClient: document.getElementById('view-root').clientWidth })""")
+            check(f"mobile{h}: no horizontal overflow",
+                  o["doc"] <= o["win"] + 1 and o["root"] <= o["rootClient"] + 1,
+                  f"doc={o['doc']} win={o['win']} root={o['root']}/{o['rootClient']}")
+
+        # the top bar fits: settings gear inside the viewport and visible
+        gear = mp.evaluate("""() => {
+            const ico = document.querySelector('#btn-settings .nav-ico');
+            const r = ico.getBoundingClientRect();
+            return { display: getComputedStyle(ico).display, right: Math.round(r.right),
+                     win: window.innerWidth };
+        }""")
+        check("mobile: settings gear visible and inside the bar",
+              gear["display"] != "none" and gear["right"] <= gear["win"], str(gear))
+
+        # account chip is hidden on phones → Settings must offer sign-out
+        mp.evaluate("location.hash='#/settings'")
+        mp.wait_for_selector("#st-signout", timeout=10000)
+        me_txt = (mp.text_content("#st-me-name") or "").strip()
+        check("mobile: Settings shows signed-in account + sign out",
+              bool(me_txt) and me_txt != "…", me_txt)
+        shot(mp, "m1-settings-account")
+
+        # the reported bug: with shuffle on, tapping a track row (center —
+        # where the artist link used to hijack the tap) plays THAT track
+        mp.evaluate("location.hash='#/search'")
+        mp.wait_for_selector("#sr-input", timeout=8000)
+        mp.fill("#sr-input", "daft punk get lucky")
+        mp.keyboard.press("Enter")
+        mp.wait_for_selector(".tl-row", timeout=30000)
+        time.sleep(0.6)
+        if "on" not in (mp.get_attribute("#pb-shuffle", "class") or ""):
+            mp.click("#pb-shuffle")
+            time.sleep(0.3)
+        want = (mp.locator(".tl-row").nth(1).locator(".tl-title").text_content() or "").strip()
+        mp.locator(".tl-row").nth(1).click()  # row center, not the title specifically
+        time.sleep(1.8)
+        got = (mp.text_content("#pb-title") or "").strip()
+        check("mobile: shuffle on → tapping a row plays that track",
+              bool(want) and (want in got or got in want), f"want={want!r} got={got!r}")
+        bar_title = mp.evaluate("""() => Math.round(
+            document.getElementById('pb-title').getBoundingClientRect().width)""")
+        check("mobile: player bar shows the track title", bar_title > 40, f"w={bar_title}")
+        shot(mp, "m2-player-bar")
+
+        # hover-only affordances must be visible on touch
+        afford = mp.evaluate("""() => ({
+            dl: getComputedStyle(document.querySelector('.tl-row .tl-actions')).opacity,
+            x: (() => { const q = document.querySelector('.qd-item .qd-x');
+                        return q ? getComputedStyle(q).opacity : 'missing'; })(),
+        })""")
+        check("mobile: per-row download + queue remove visible without hover",
+              afford["dl"] == "1" and afford["x"] in ("1", "missing"), str(afford))
+        mctx.close()
+
         # ── home with playback history ────────────────────────
         page.goto(BASE + "/#/home")
         time.sleep(1.8)

@@ -175,6 +175,14 @@ export async function mount(root) {
     <section class="section" id="st-accounts">
       <div class="section-head-row"><h2>${icon('user', 19)} &nbsp;Accounts</h2></div>
       <div class="card" style="cursor:default">
+        <div class="row" style="align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <span class="nav-ico" style="display:flex;color:var(--accent-bright)">${icon('user', 20)}</span>
+          <span class="grow" style="min-width:0">
+            <span id="st-me-name" style="font-weight:650"></span>
+            <span class="faint" style="font-size:12.5px" id="st-me-role"></span>
+          </span>
+          <button class="btn ghost" id="st-signout">${icon('log-out', 15)} Sign out</button>
+        </div>
         <div class="field" style="margin-bottom:16px">
           <label>My password</label>
           <div class="row gap-m" style="max-width:460px">
@@ -333,6 +341,17 @@ export async function mount(root) {
 
   // ── accounts ──
   const me = cfg.user || null;
+  // signed-in identity + sign out (the sidebar chip is hidden on phones)
+  const meUser = cfg.user || {};
+  root.querySelector('#st-me-name').textContent = meUser.name || '…';
+  root.querySelector('#st-me-role').textContent = meUser.role === 'admin' ? ' · admin' : '';
+  root.querySelector('#st-signout').onclick = async () => {
+    try {
+      await api.logout();
+      location.reload();
+    } catch { toastErr('Sign out failed'); }
+  };
+
   root.querySelector('#st-my-pass-save').onclick = async () => {
     const v = root.querySelector('#st-my-pass').value;
     if (!me) { toastErr('Not signed in'); return; }

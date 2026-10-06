@@ -159,20 +159,30 @@
   #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; padding: 8px 8px 0; }
   #sidebar {
     flex-direction: row; align-items: center; border-radius: var(--r-md);
-    height: 56px; overflow: visible;
+    height: 56px; overflow: hidden; gap: 0;
   }
-  .logo { padding: 0 12px; }
-  #main-nav { flex-direction: row; padding: 4px 8px; gap: 4px; }
-  .nav-item { padding: 9px 13px; }
+  .logo { padding: 0 8px; }
+  .logo svg { width: 26px; height: 26px; }
+  #main-nav { flex-direction: row; padding: 4px 2px; gap: 0; }
+  .nav-item { padding: 9px 8px; }
   .nav-item.active::before { display: none; }
   .nav-badge { display: none; }
   .sidebar-section { display: none; }
-  .sidebar-footer { border: 0; padding: 0 10px 0 0; margin-left: auto; }
-  #btn-settings span:not(.nav-ico) { display: none; }
-  #btn-settings { width: auto; padding: 9px; justify-content: center; }
+  /* settings sits inline at the end of the bar; the account chip is too
+     wide for a phone bar and lives in Settings → Account instead */
+  .sidebar-footer {
+    border: 0; padding: 0 8px 0 0; margin-left: auto;
+    display: flex; flex-direction: row; align-items: center; gap: 0;
+  }
+  .sidebar-footer .nav-item { padding: 9px 8px; }
+  #btn-user { display: none; }
   .offline-pill { display: none !important; }
   :root { --player-h: 120px; }  /* the bar is two rows on touch layouts (see player.css ≤900px) */
-  .pb-meta, .pb-timeline .pb-time { display: none; }
+  /* keep the title on the bar — hiding the whole meta block used to leave
+     a lone cover thumbnail next to a wall of dead space */
+  .pb-artist { display: none; }
+  #pb-lyrics, #pb-queue, .pb-volume { display: none; }
+  .mobile-only { display: inline-flex; }
 }
 
 /* sidebar user chip + logout */
