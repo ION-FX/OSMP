@@ -20,6 +20,11 @@ name: windows-build
 # the zip is attached to the release.
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the zip to (e.g. v0.7.6); empty = artifact only"
+        required: false
+        default: ""
   push:
     tags: ["v*"]
     paths:
@@ -84,9 +89,12 @@ jobs:
           if-no-files-found: error
 
       - name: Attach zip to release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         run: |
           $tag = "${{ github.ref_name }}"
+          $dispatchTag = "${{ github.event.inputs.tag }}"
+          if ($dispatchTag -ne "") { $tag = $dispatchTag }
+          Write-Host "attaching to release: $tag"
           gh release view $tag --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { gh release create $tag --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes }
           gh release upload $tag dist/osmp-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
