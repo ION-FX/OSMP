@@ -115,6 +115,14 @@ public class MainActivity extends Activity {
         else runOnUiThread(read);
         try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS); }
         catch (InterruptedException ignored) { }
+        if (out[0] == null || out[0].isEmpty()) {
+            // main thread wedged past the latch — most WebView providers
+            // tolerate a direct off-main read, so try before giving up
+            try {
+                String c = CookieManager.getInstance().getCookie(serverUrl);
+                if (c != null && !c.isEmpty()) { cookieCache = c; out[0] = c; }
+            } catch (Throwable ignored) { }
+        }
         return out[0];
     }
 

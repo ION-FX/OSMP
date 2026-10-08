@@ -128,9 +128,11 @@ export async function toggleLike(track) {
 const nativePolls = new Map(); // id -> interval
 
 // The Android download worker needs an absolute URL (java.net.URL rejects
-// relative paths); streamUrl() returns server-relative ones.
+// relative paths); streamUrl() returns server-relative ones. The track's
+// own offline flag must survive: uploads have local_* ids that exist only
+// in the server library — forcing the YouTube path 404s them.
 function nativeStreamUrl(track) {
-  return new URL(streamUrl({ ...track, offline: false }), location.origin).href;
+  return new URL(streamUrl(track), location.origin).href;
 }
 
 export function downloadTrack(track, buttonEl = null) {

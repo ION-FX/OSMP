@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.7.7 — 2026-10-08
+
+### Fixed — Android downloads (verified end-to-end)
+- **Uploaded tracks could not be downloaded to the device**: the download
+  URL builder forced every track onto the YouTube stream endpoint, but
+  uploads have `local_*` ids that only exist in the server library —
+  those downloads failed. Server-stored tracks now download from the
+  library endpoint (also faster and independent of YouTube).
+- Session-cookie lookup (which the v0.7.5 UI-thread latch made safe)
+  now falls back to a direct read if the latch times out on a wedged
+  main thread — same guard in the Android Auto playback path.
+- The download worker itself was verified against a real server by
+  running the unmodified Java code in a harness: authenticated download
+  produces real audio bytes (ftyp), correct mime/ranges for offline
+  playback, index persistence across restarts, duplicate-submission
+  guard, .part cleanup on failure, and no-cookie attempts fail with
+  HTTP 401 (the auth gate working as intended). Two new UI checks pin
+  the YouTube-vs-library URL routing.
+
 ## v0.7.6 — 2026-10-06
 
 ### Added — time bar on the phone player

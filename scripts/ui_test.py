@@ -791,6 +791,51 @@ def main():
         shot(mp, "m3-queue-drawer")
         mctx.close()
 
+        # ── android download URL routing (stubbed bridge) ──────
+        # v0.7.7 regression: uploads (local_* ids) must download from the
+        # server's library endpoint — forcing the YouTube path 404s them
+        dctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        dp = dctx.new_page()
+        dp.add_init_script("""
+          window.__dlCalls = [];
+          window.OsmpBridge = {
+            isDownloaded: () => false,
+            getDownloadState: (id) => '{"status":"idle"}',
+            downloadTrack: (id, url, t, a) => window.__dlCalls.push({id, url}),
+            deleteDownload: () => {}, listDownloads: () => '[]',
+            storageUsed: () => 0,
+            getServerUrl: () => location.origin,
+            notifyMedia: () => {}, setWakeLock: () => {}, openSetup: () => {},
+          };
+        """)
+        dp.goto(BASE, wait_until="load", timeout=30000)
+        dp.wait_for_selector("#auth-form", state="visible", timeout=15000)
+        dp.fill("#auth-user", "admin")
+        dp.fill("#auth-pass", "osmp-admin")
+        dp.click("#auth-go")
+        dp.wait_for_selector("#app", timeout=15000)
+        time.sleep(1)
+        routed = dp.evaluate("""async () => {
+          const calls = [];
+          const orig = window.__dlCalls.push.bind(window.__dlCalls);
+          // fake tracklists: one YouTube-sourced, one uploaded (server file)
+          const fake = [
+            {id: 'dQw4w9WgXcQ', title: 'YT Track', artist: 'X', duration: 120,
+             thumbnail: '', source: 'youtube', offline: false},
+            {id: 'local_deadbeef1234', title: 'Upload', artist: 'Y', duration: 90,
+             thumbnail: '', source: 'local', offline: true},
+          ];
+          const { downloadTrack } = await import('/js/actions.js');
+          for (const t of fake) { try { downloadTrack(t); } catch (e) {} }
+          return window.__dlCalls.map(c => c.url);
+        }""")
+        check("android-dl: YouTube track → /api/stream with fmt",
+              any("/api/stream/" in u and "fmt=" in u for u in routed), str(routed))
+        check("android-dl: upload → /api/library/stream (no yt path)",
+              any("/api/library/stream/local_" in u for u in routed)
+              and not any("/api/stream/local_" in u for u in routed), str(routed))
+        dctx.close()
+
         # ── home with playback history ────────────────────────
         page.goto(BASE + "/#/home")
         time.sleep(1.8)

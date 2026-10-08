@@ -853,6 +853,14 @@ public class MediaService extends MediaBrowserService {
             if (Looper.myLooper() == Looper.getMainLooper()) read.run();
             else new Handler(Looper.getMainLooper()).post(read);
             latch.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            if (out[0] == null || out[0].isEmpty()) {
+                // latch timed out — most providers tolerate a direct
+                // off-main read; better than browsing auth-less
+                try {
+                    String c = android.webkit.CookieManager.getInstance().getCookie(base);
+                    if (c != null) out[0] = c;
+                } catch (Throwable ignored) { }
+            }
             return out[0];
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
