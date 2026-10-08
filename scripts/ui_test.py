@@ -705,6 +705,45 @@ def main():
         bar_title = mp.evaluate("""() => Math.round(
             document.getElementById('pb-title').getBoundingClientRect().width)""")
         check("mobile: player bar shows the track title", bar_title > 40, f"w={bar_title}")
+
+        # v0.7.6: the seek/time bar lives on the phone bar, not just the np overlay
+        tl = mp.evaluate("""() => {
+            const tl = document.querySelector('.pb-timeline');
+            const prog = document.getElementById('pb-progress');
+            const cs = getComputedStyle(tl);
+            const times = [...document.querySelectorAll('.pb-time')]
+                .filter(e => e.closest('.pb-timeline')
+                          && getComputedStyle(e).display !== 'none').length;
+            const r = prog.getBoundingClientRect();
+            return {display: cs.display, w: Math.round(r.width), times,
+                    text: document.getElementById('pb-dur').textContent};
+        }""")
+        check("mobile: seek bar + elapsed/total on the player bar",
+              tl["display"] == "flex" and tl["w"] > 150 and tl["times"] == 2
+              and ":" in tl["text"], str(tl))
+        # tapping the bar at ~80% seeks the track — wait for real playback
+        # first (a stalled stream must fail loudly, not fake a seek failure)
+        if tl["display"] == "flex" and tl["w"] > 150:
+            advancing = False
+            for _ in range(8):
+                t0 = mp.evaluate("document.getElementById('audio-el').currentTime")
+                time.sleep(0.5)
+                t1 = mp.evaluate("document.getElementById('audio-el').currentTime")
+                if t1 > t0 + 0.2: advancing = True; break
+            pr = mp.evaluate("""() => { const r = document.getElementById('pb-progress').getBoundingClientRect();
+                return {x: r.x, y: r.y, w: r.width, h: r.height}; }""")
+            before = mp.evaluate("Math.floor(document.getElementById('audio-el').currentTime)")
+            mp.touchscreen.tap(pr["x"] + pr["w"] * 0.8, pr["y"] + pr["h"] / 2)
+            time.sleep(0.8)
+            after = mp.evaluate("Math.floor(document.getElementById('audio-el').currentTime)")
+            dur = mp.evaluate("Math.floor(document.getElementById('audio-el').duration || 0)")
+            diag = mp.evaluate("""() => { const a = document.getElementById('audio-el');
+                return {advancing: %s, paused: a.paused, ready: a.readyState,
+                        err: a.error ? a.error.code : null}; }"""
+                % ("true" if advancing else "false"))
+            check("mobile: tapping the seek bar seeks",
+                  advancing and after > max(before + 5, dur * 0.6),
+                  f"{before}→{after} of {dur} {diag}")
         shot(mp, "m2-player-bar")
 
         # hover-only affordances must be visible on touch

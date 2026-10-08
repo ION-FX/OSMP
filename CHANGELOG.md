@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.6 — 2026-10-06
+
+### Added — time bar on the phone player
+- The player bar now shows the seek bar with elapsed / total time on
+  phones and narrow tablets (≤900px) — previously it was hidden and the
+  only way to see or scrub position was opening the full Now Playing
+  screen. The bar sits between the transport buttons and the track row,
+  and touch-scrubbing works (verified: tapping at 80% of a 4:07 track
+  seeks to ~3:16). Two new regression checks pin it down: bar visible
+  with both timestamps, and a tap seeks the audio.
+
 ## v0.7.5 — 2026-10-06
 
 Fixes for the two things that were still broken on phones: the queue was

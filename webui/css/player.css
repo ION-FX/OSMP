@@ -240,12 +240,16 @@
 @media (max-width: 900px) {
   #player-bar { grid-template-columns: 1fr auto; padding: 0 12px; gap: 8px; }
   .pb-center { grid-column: 1 / -1; grid-row: 1; order: -1; }
-  .pb-timeline { display: none; }
+  /* the seek bar stays on the bar (phones get it from the np overlay too,
+     but the main screen must show elapsed/total without a tap) — it rides
+     as the second row of the center column, under the transport buttons */
+  .pb-timeline { display: flex; gap: 8px; max-width: none; margin-top: 4px; }
+  .pb-time { min-width: 32px; font-size: 10.5px; }
   #player-bar { grid-template-rows: auto auto; height: auto; padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   #pb-vol { width: 64px; }
-  /* the bar is really two rows now (~120px); --player-h sizes #app, the
-     queue drawer and the toast host — without this the bar covers them */
-  :root { --player-h: 120px; }
+  /* --player-h sizes #app, the queue drawer and the toast host — without
+     this the bar covers them */
+  :root { --player-h: 150px; }
 }
 @media (max-width: 640px) {
   .pb-track .pb-meta { flex: 1; min-width: 0; }
