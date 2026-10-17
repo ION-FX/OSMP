@@ -103,10 +103,17 @@ curl -fsSL https://raw.githubusercontent.com/ION-FX/OSMP/main/scripts/install.sh
 
 The installer asks **which IP to bind** and **which port** (defaults: your LAN IP
 and `8543`), downloads the latest server bundle, creates a venv, installs a
-`osmp` systemd service, and starts it. No root? It installs into
-`~/.local/share/osmp` with a user-level service instead. Handy flags:
-`--host 0.0.0.0 --port 8790 --no-systemd --uninstall`, and `OSMP_GITHUB_TOKEN=…`
-if the repo is private. Prefer to do it by hand:
+`osmp` systemd service, and starts it. No root (or no sudo)? Run it without
+`sudo` — it installs into `~/.local/share/osmp` with a user-level service
+instead, and prints a plain run command when systemd isn't available at all.
+With flags, pass them to bash:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ION-FX/OSMP/main/scripts/install.sh | bash -s -- --host 0.0.0.0 --port 8790 --no-systemd
+```
+
+Other handy flags: `--uninstall`, `--version vX.Y` to pin a release, and
+`OSMP_GITHUB_TOKEN=…` if the repo is private. Prefer to do it by hand:
 
 ```bash
 python3 -m venv server/venv && server/venv/bin/pip install -r server/requirements.txt

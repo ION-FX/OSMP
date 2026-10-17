@@ -26,6 +26,24 @@ else
 fi
 
 # ── flags ────────────────────────────────────────────────────────────
+usage() {
+  cat <<'USAGE'
+OSMP server installer
+
+  curl -fsSL https://raw.githubusercontent.com/ION-FX/OSMP/main/scripts/install.sh | bash
+  (with flags:  … | bash -s -- --host 0.0.0.0 --port 8790)
+
+Flags:
+  --host IP       bind address          (default 0.0.0.0; asked interactively)
+  --port N        port                  (default 8543)
+  --dir PATH      install location      (default /opt/osmp or ~/.local/share/osmp)
+  --data PATH     library/data dir      (default /var/lib/osmp or ~/.local/share/osmp/data)
+  --no-systemd    skip the service, print the run command instead
+  --version vX.Y  pin a release         (default: latest)
+  --uninstall     remove the service + files (keeps your library data)
+Env: OSMP_GITHUB_TOKEN for private repos.
+USAGE
+}
 HOST_ARG="" PORT_ARG="" DIR_ARG="" NO_SYSTEMD=0 UNINSTALL=0 VERSION=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,8 +54,8 @@ while [[ $# -gt 0 ]]; do
     --no-systemd) NO_SYSTEMD=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --version) VERSION="$2"; shift 2;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0;;
-    *) echo "unknown flag: $1" >&2; exit 1;;
+    -h|--help) usage; exit 0;;
+    *) echo "unknown flag: $1" >&2; usage >&2; exit 1;;
   esac
 done
 
@@ -75,7 +93,8 @@ gh() {  # gh <path> [curl args...]
 # ── resolve the release to install ───────────────────────────────────
 if [[ -z "$VERSION" ]]; then
   echo "→ Looking up the latest OSMP release…"
-  VERSION=$(gh "/releases/latest" | grep -oP '"tag_name":\s*"\K[^"]+' || true)
+  # sed, not grep -oP — macOS ships BSD grep with no -o/-P
+  VERSION=$(gh "/releases/latest" | sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p' | head -n1 || true)
   if [[ -z "$VERSION" ]]; then
     echo "!! Could not resolve the latest release (private repo? set OSMP_GITHUB_TOKEN)." >&2
     exit 1
@@ -209,17 +228,18 @@ else
   RUN_CMD="  $OSMP_HOME/server/venv/bin/python $OSMP_HOME/server/run.py --host $HOST_ARG --port $PORT_ARG --data $OSMP_DATA"
 fi
 
-sleep 2
 # probe the address we actually bound to — 0.0.0.0 isn't curlable, and a
 # specific LAN IP refuses loopback probes, which made healthy installs
-# report "not responding yet"
+# report "not responding yet". Retry: a cold start imports ~70MB of Python.
 HEALTH_HOST="127.0.0.1"
 [[ "$HOST_ARG" != "0.0.0.0" && "$HOST_ARG" != "::" ]] && HEALTH_HOST="$HOST_ARG"
-if curl -fsS "http://$HEALTH_HOST:$PORT_ARG/api/health" >/dev/null 2>&1; then
-  HEALTH="✓ server is up"
-else
-  HEALTH="(not responding yet — check journalctl -u $OSMP_SERVICE if you installed the service)"
-fi
+HEALTH="(not responding yet — check journalctl -u $OSMP_SERVICE if you installed the service)"
+for _ in 1 2 3 4 5 6 8 10 12; do
+  if curl -fsS "http://$HEALTH_HOST:$PORT_ARG/api/health" >/dev/null 2>&1; then
+    HEALTH="✓ server is up"; break
+  fi
+  sleep 1.5
+done
 
 cat <<EOF
 
