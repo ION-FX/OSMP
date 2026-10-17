@@ -272,6 +272,10 @@ def main() -> int:
 
     client_url = None      # what we load in the webview
     session_token = None
+    if smoke:
+        # must precede QApplication creation — setting it later has no
+        # effect and headless boxes die in xcb plugin loading
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
     cfg = load_cfg()
     if "--local" in args or (smoke and not flag("--server")):
         cfg = {"mode": "local"}
@@ -346,9 +350,6 @@ def main() -> int:
                 time.sleep(1)
         except KeyboardInterrupt:
             return 0
-
-    if smoke:
-        os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
     from PySide6.QtCore import QUrl, QTimer
     from PySide6.QtWidgets import QMainWindow, QSystemTrayIcon, QMenu

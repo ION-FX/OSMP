@@ -95,7 +95,11 @@ Every surface shares one codebase for the UI (`webui/`).
 
 ## Setup — one server, everyone connects
 
-### 1. Install the server (one command)
+Two different things can be installed by one command each. **The server is
+the only required piece** — it runs on one machine and everything (browsers,
+phones, desktops) connects to it. The desktop app is a *client*.
+
+### 1a. Install the server (required, once)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ION-FX/OSMP/main/scripts/install.sh | sudo bash
@@ -119,6 +123,19 @@ Other handy flags: `--uninstall`, `--version vX.Y` to pin a release, and
 python3 -m venv server/venv && server/venv/bin/pip install -r server/requirements.txt
 server/venv/bin/python server/run.py --host 0.0.0.0 --port 8543
 ```
+
+### 1b. Install the desktop app (optional Linux client)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ION-FX/OSMP/main/scripts/install_app.sh | bash
+```
+
+This is the **app**, not the server — a native-feeling desktop client with a
+system tray, installed to `~/.local/bin/osmp` with a menu entry and icon
+(`--no-desktop` skips those, `--dir` picks another location, `--uninstall`
+removes it). On first run it asks for your server address + account; it can
+also *host* a server itself on that machine if you tick the box. The app
+updates itself from its own Settings — you never run this installer twice.
 
 ### 2. Create the admin account
 
