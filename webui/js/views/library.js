@@ -48,7 +48,7 @@ export async function mount(root) {
 
     <section class="section">
       <div class="section-head-row">
-        <h2>On this server</h2>
+        <h2>Downloads</h2>
         <span class="faint" id="lb-dl-stats" style="font-size:12.5px"></span>
       </div>
       <div id="lb-native-note" class="hidden" style="margin-bottom:12px">

@@ -290,17 +290,11 @@ public class MainActivity extends Activity {
 
         private void showOfflinePage(WebView view) {
             showingOfflinePage = true;
-            view.loadDataWithBaseURL(null, OFFLINE_PAGE, "text/html", "utf-8", null);
+            // a real local page (bundled asset), not a placeholder string: it
+            // lists the device's downloads and plays them through the native
+            // offline.osmp.local interceptor — the app stays usable with the
+            // server unreachable and no internet at all
+            view.loadUrl("file:///android_asset/offline.html");
         }
     }
-
-    private static final String OFFLINE_PAGE =
-            "<html><body style='background:#0a0e14;color:#e9eef6;font-family:sans-serif;"
-          + "display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
-          + "<div style='text-align:center'><h2>Server unreachable</h2>"
-          + "<p style='color:#93a1b5'>Check that the machine running OSMP is on and that "
-          + "you're on the same network.<br>Downloaded tracks still play from the Library.</p>"
-          + "<p><button onclick='location.href=\"osmp-retry://load\"' style='padding:12px 26px;border:0;"
-          + "border-radius:24px;background:linear-gradient(115deg,#0dbeb0,#8b5cf6);color:#fff;"
-          + "font-size:15px;font-weight:600'>Retry</button></p></div></body></html>";
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.7.8 — 2026-10-24
+
+### Added — offline failsafe (Android)
+- **The app now opens to something useful with no internet and no
+  server.** When the server is unreachable, Android used to show a
+  dead-end "Server unreachable" page. It now loads a bundled offline
+  screen that lists every track downloaded to the device — title,
+  artist, size — and plays them straight from on-device storage with
+  zero network (through the native offline host). Full mini-player:
+  play/pause, next/prev, seek bar, auto-advance, broken-download skip,
+  media notification with lock-screen/Bluetooth controls, and wake
+  lock. A Retry button reconnects to the server when it's back.
+  First-run offline with no downloads shows guidance instead of a
+  dead end. Verified by driving the real page headlessly with a
+  stubbed native bridge.
+- Note: with the server reachable, everything is unchanged — this
+  only takes over on connection failure.
+
+### Fixed — download clarity
+- A finished download now flips the row's button to a ✓ and shows the
+  offline dot **the moment it completes** — previously the progress
+  ring vanished back to a plain download arrow until the next time the
+  view re-rendered, making it unclear what was actually downloaded.
+- Library section renamed "On this server" → "Downloads" (it lists
+  server + on-device downloads together).
+
 ## v0.7.7 — 2026-10-08
 
 ### Fixed — Android downloads (verified end-to-end)

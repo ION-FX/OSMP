@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OSMP — offline</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    background: #0a0e14; color: #e9eef6;
+    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  header { padding: 26px 20px 8px; }
+  .logo {
+    font-size: 24px; font-weight: 800; letter-spacing: .04em;
+    background: linear-gradient(115deg, #0dbeb0, #8b5cf6);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    width: fit-content;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px; margin-top: 10px;
+    padding: 5px 12px; border-radius: 999px; font-size: 12.5px;
+    color: #f0b45c; background: rgba(240, 180, 92, .12);
+    border: 1px solid rgba(240, 180, 92, .25);
+  }
+  .sub { color: #93a1b5; font-size: 13.5px; margin-top: 10px; line-height: 1.55; }
+  main { flex: 1; padding: 8px 14px 24px; overflow-y: auto; }
+  .row {
+    display: flex; align-items: center; gap: 12px; padding: 12px 8px;
+    border-radius: 12px; cursor: pointer;
+  }
+  .row:active { background: rgba(255,255,255,.06); }
+  .row .num { color: #5b6a80; font-size: 12px; min-width: 18px; text-align: center; }
+  .row .meta { flex: 1; min-width: 0; }
+  .row .t { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .a { font-size: 12.5px; color: #93a1b5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .sz { color: #5b6a80; font-size: 11.5px; white-space: nowrap; }
+  .row.playing .t { color: #0dbeb0; }
+  .row.bad .t { color: #e2695f; text-decoration: line-through; }
+  .empty { text-align: center; padding: 48px 28px; color: #93a1b5; }
+  .empty h3 { color: #e9eef6; margin: 0 0 8px; }
+  .empty p { font-size: 13.5px; line-height: 1.6; margin: 0; }
+  .retry {
+    display: block; margin: 6px auto 0; padding: 11px 30px; border: 0;
+    border-radius: 24px; font-size: 15px; font-weight: 600; color: #fff;
+    background: linear-gradient(115deg, #0dbeb0, #8b5cf6);
+  }
+  #player {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: rgba(16, 21, 30, .97); border-top: 1px solid #212b3b;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0));
+    display: none;
+  }
+  #player.on { display: block; }
+  .p-title { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-artist { font-size: 12px; color: #93a1b5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .p-time { color: #5b6a80; font-size: 11px; min-width: 34px; font-variant-numeric: tabular-nums; }
+  input[type=range] { flex: 1; accent-color: #0dbeb0; height: 22px; }
+  .p-controls { display: flex; justify-content: center; gap: 30px; margin-top: 6px; }
+  .p-controls button {
+    background: none; border: 0; color: #e9eef6; font-size: 22px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  .p-controls .play { font-size: 30px; color: #0dbeb0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">OSMP</div>
+  <div class="pill">offline — playing from this device</div>
+  <div class="sub" id="summary"></div>
+</header>
+<main>
+  <div id="list"></div>
+  <div id="empty" class="empty" hidden>
+    <h3>No downloads on this device yet</h3>
+    <p>While online, tap the download arrow on any track — it lands here and
+       plays with the server unreachable. This screen needs no connection.</p>
+  </div>
+  <button class="retry">Retry connection</button>
+</main>
+<footer id="player">
+  <div class="p-title" id="pt"></div>
+  <div class="p-artist" id="pa"></div>
+  <div class="p-bar">
+    <span class="p-time" id="cur">0:00</span>
+    <input type="range" id="seek" min="0" max="1000" value="0">
+    <span class="p-time" id="dur">0:00</span>
+  </div>
+  <div class="p-controls">
+    <button id="prev">&#9198;</button>
+    <button id="play" class="play">&#9654;&#65039;</button>
+    <button id="next">&#9197;</button>
+  </div>
+</footer>
+<audio id="audio" preload="auto"></audio>
+<script>
+(function () {
+  'use strict';
+  var B = window.OsmpBridge;
+  var audio = document.getElementById('audio');
+  var tracks = [];
+  var index = -1;
+
+  function fmtSize(n) {
+    if (!n) return '';
+    if (n > 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    return Math.round(n / 1024) + ' KB';
+  }
+  function fmtTime(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    var m = Math.floor(s / 60), r = Math.floor(s % 60);
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+
+  if (!B || !B.listDownloads) {
+    document.getElementById('summary').textContent =
+      'Server unreachable and this build has no offline storage.';
+    return;
+  }
+
+  try { tracks = JSON.parse(B.listDownloads() || '[]'); }
+  catch (e) { tracks = []; }
+  tracks.sort(function (a, b) { return (a.title || '').localeCompare(b.title || ''); });
+
+  var total = tracks.reduce(function (s, t) { return s + (t.size || 0); }, 0);
+  document.getElementById('summary').textContent = tracks.length
+    ? tracks.length + ' track' + (tracks.length === 1 ? '' : 's') + ' on this device · ' + fmtSize(total)
+    : '';
+
+  var list = document.getElementById('list');
+  if (!tracks.length) document.getElementById('empty').hidden = false;
+  tracks.forEach(function (t, i) {
+    var row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML =
+      '<span class="num">' + (i + 1) + '</span>' +
+      '<span class="meta"><span class="t"></span><span class="a"></span></span>' +
+      '<span class="sz">' + fmtSize(t.size) + '</span>';
+    row.querySelector('.t').textContent = t.title || t.id;
+    row.querySelector('.a').textContent = t.artist || '';
+    row.onclick = function () { play(i); };
+    list.appendChild(row);
+  });
+
+  // retry navigates via the custom scheme MainActivity intercepts —
+  // location.reload() would only reload this local file
+  Array.prototype.forEach.call(document.querySelectorAll('.retry'), function (b) {
+    b.onclick = function () { location.href = 'osmp-retry://load'; };
+  });
+
+  function rowAt(i) { return list.children[i]; }
+
+  function notify() {
+    if (!B.notifyMedia) return;
+    var t = tracks[index] || {};
+    try {
+      B.notifyMedia(JSON.stringify({
+        title: t.title || 'OSMP', artist: t.artist || '', cover: '',
+        playing: !audio.paused && index >= 0,
+        pos: audio.currentTime || 0,
+        dur: isFinite(audio.duration) ? audio.duration : (t.duration || 0),
+      }));
+    } catch (e) { /* notification is best-effort */ }
+    if (B.setWakeLock) { try { B.setWakeLock(!audio.paused && index >= 0); } catch (e) {} }
+  }
+
+  function play(i) {
+    if (i < 0 || i >= tracks.length) return;
+    index = i;
+    var t = tracks[i];
+    for (var k = 0; k < list.children.length; k++)
+      list.children[k].classList.toggle('playing', k === i);
+    document.getElementById('player').classList.add('on');
+    document.getElementById('pt').textContent = t.title || t.id;
+    document.getElementById('pa').textContent = t.artist || '';
+    document.title = (t.title || 'OSMP') + ' — OSMP';
+    audio.src = 'https://offline.osmp.local/' + t.id;
+    audio.play().catch(function () { /* shown via the error handler */ });
+    updatePlayBtn();
+    notify();
+  }
+
+  function updatePlayBtn() {
+    document.getElementById('play').innerHTML =
+      (audio.paused && index >= 0) || audio.ended ? '&#9654;&#65039;' : '&#9208;&#65039;';
+  }
+
+  audio.addEventListener('timeupdate', function () {
+    document.getElementById('cur').textContent = fmtTime(audio.currentTime);
+    if (isFinite(audio.duration) && audio.duration > 0)
+      document.getElementById('seek').value = Math.round(1000 * audio.currentTime / audio.duration);
+  });
+  audio.addEventListener('durationchange', function () {
+    document.getElementById('dur').textContent = fmtTime(audio.duration);
+  });
+  audio.addEventListener('play', function () { updatePlayBtn(); notify(); });
+  audio.addEventListener('pause', function () { updatePlayBtn(); notify(); });
+  audio.addEventListener('ended', function () { next(1); });
+  audio.addEventListener('error', function () {
+    var row = rowAt(index);
+    if (row) row.classList.add('bad');
+    if (tracks.length > 1) next(1);  // skip the broken one
+  });
+
+  function next(dir) {
+    var n = index + dir;
+    if (n >= tracks.length) { audio.pause(); return; }
+    if (n < 0) n = 0;
+    play(n);
+  }
+
+  document.getElementById('play').onclick = function () {
+    if (index < 0) { play(0); return; }
+    if (audio.paused) audio.play().catch(function () {});
+    else audio.pause();
+  };
+  document.getElementById('next').onclick = function () { next(1); };
+  document.getElementById('prev').onclick = function () { next(-1); };
+  document.getElementById('seek').oninput = function () {
+    if (isFinite(audio.duration)) audio.currentTime = this.value / 1000 * audio.duration;
+  };
+
+  // transport arriving from the notification / lock screen / Bluetooth
+  window.__osmpMedia = function (action) {
+    if (typeof action === 'string' && action.indexOf('seek:') === 0) {
+      var sec = Number(action.slice(5));
+      if (isFinite(sec) && sec >= 0) {
+        try { audio.currentTime = sec; } catch (e) {}
+      }
+      return;
+    }
+    var map = {
+      play: function () { if (audio.paused) audio.play().catch(function () {}); },
+      pause: function () { if (!audio.paused) audio.pause(); },
+      toggle: function () { audio.paused ? audio.play().catch(function () {}) : audio.pause(); },
+      next: function () { next(1); },
+      prev: function () { next(-1); },
+      stop: function () { audio.pause(); },
+      noop: notify,
+    };
+    if (map[action]) map[action]();
+  };
+})();
+</script>
+</body>
+</html>

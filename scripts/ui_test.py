@@ -75,13 +75,20 @@ def main():
         page.fill("#st-new-user", "listener")
         page.fill("#st-new-pass", "listen123")
         page.click("#st-user-add")
-        time.sleep(1.2)
+        try:
+            page.locator("#st-users-list .row", has_text="listener").first.wait_for(timeout=8000)
+        except Exception:
+            pass
         ulist = page.text_content("#st-users-list") or ""
         check("accounts: user added", "listener" in ulist, ulist[:80])
         # remove them again (their row's trash button) — confirm() fires a dialog
         page.on("dialog", lambda d: d.accept())
         page.locator("#st-users-list .row", has_text="listener").locator(".icon-btn").last.click()
-        time.sleep(1.2)
+        try:
+            page.locator("#st-users-list .row", has_text="listener").first.wait_for(
+                state="detached", timeout=8000)
+        except Exception:
+            pass
         ulist = page.text_content("#st-users-list") or ""
         check("accounts: user removed", "listener" not in ulist, ulist[:80])
         page.click('a[data-route="home"]')
@@ -799,11 +806,14 @@ def main():
         dp.add_init_script("""
           window.__dlCalls = [];
           window.OsmpBridge = {
-            isDownloaded: () => false,
+            isDownloaded: (id) => id === 'local_devlist01',
             getDownloadState: (id) => '{"status":"idle"}',
             downloadTrack: (id, url, t, a) => window.__dlCalls.push({id, url}),
-            deleteDownload: () => {}, listDownloads: () => '[]',
-            storageUsed: () => 0,
+            deleteDownload: () => {},
+            listDownloads: () => JSON.stringify([
+              {id: 'local_devlist01', ext: 'm4a', title: 'On-Device Track',
+               artist: 'The Phone', size: 1234567}]),
+            storageUsed: () => 1234567,
             getServerUrl: () => location.origin,
             notifyMedia: () => {}, setWakeLock: () => {}, openSetup: () => {},
           };
@@ -834,6 +844,13 @@ def main():
         check("android-dl: upload → /api/library/stream (no yt path)",
               any("/api/library/stream/local_" in u for u in routed)
               and not any("/api/stream/local_" in u for u in routed), str(routed))
+        # device downloads must be visible in Library → Downloads
+        dp.evaluate("location.hash='#/library'")
+        time.sleep(2.4)
+        dev_row = dp.locator("#lb-downloads .tl-row", has_text="On-Device Track").count()
+        dl_stats = (dp.text_content("#lb-dl-stats") or "").strip()
+        check("android-dl: device downloads listed in Library → Downloads",
+              dev_row >= 1 and "track" in dl_stats, f"rows={dev_row} stats={dl_stats!r}")
         dctx.close()
 
         # ── home with playback history ────────────────────────

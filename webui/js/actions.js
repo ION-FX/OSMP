@@ -249,6 +249,22 @@ export function updateDownloadButtons(trackId) {
     } else {
       ring?.remove();
       btn.classList.remove('on');
+      // completion must be visible the instant it happens — swap the arrow
+      // for a check and show the row's offline dot right here, instead of
+      // waiting for the next view re-render
+      if (isTrackOffline({ id: trackId })) {
+        if (!btn.classList.contains('dl-done')) {
+          btn.classList.add('dl-done');
+          btn.innerHTML = icon('download-check', 16);
+        }
+        const row = btn.closest('.tl-row');
+        if (row && !row.querySelector('.offline-dot')) {
+          const dot = document.createElement('span');
+          dot.className = 'offline-dot';
+          dot.title = 'Available offline';
+          row.querySelector('.tl-main')?.appendChild(dot);
+        }
+      }
     }
   });
 }
